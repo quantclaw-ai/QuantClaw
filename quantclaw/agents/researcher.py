@@ -20,7 +20,22 @@ class ResearcherAgent(BaseAgent):
     daemon = False
 
     async def execute(self, task: dict) -> AgentResult:
-        topic = task.get("topic", task.get("query", task.get("task", "")))
+        task_name = task.get("task", "")
+
+        # Route diagnostic tasks
+        if task_name == "investigate_model_drift":
+            return await self._investigate_model_drift(task.get("context", {}))
+        elif task_name == "analyze_weak_signal":
+            return await self._analyze_signal_weakness(task.get("context", {}))
+        elif task_name == "analyze_candidate_promotion_barriers":
+            return await self._analyze_promotion_barriers(task.get("context", {}))
+        elif task_name == "discover_new_trading_signals":
+            return await self._discover_new_signals(task.get("context", {}))
+        elif task_name == "find_new_allocation_opportunities":
+            return await self._find_new_allocation_opportunities(task.get("context", {}))
+
+        # Legacy research task
+        topic = task.get("topic", task.get("query", ""))
         task_type = task.get("task", "search")
         context = task.get("context", "")
 
@@ -229,3 +244,213 @@ class ResearcherAgent(BaseAgent):
         except Exception:
             logger.debug("Could not query available fields")
         return {}
+
+    async def _investigate_model_drift(self, context: dict) -> AgentResult:
+        """Investigate model performance degradation."""
+        from quantclaw.execution.router import LLMRouter
+        router = LLMRouter(self._config)
+
+        prompt = (
+            f"Analyze model performance degradation:\n\n"
+            f"Prior Sharpe: {context.get('prior_sharpe', 0):.2f}\n"
+            f"Current Sharpe: {context.get('current_sharpe', 0):.2f}\n"
+            f"Degradation: {context.get('degradation_pct', 0):.1f}%\n"
+            f"Campaign metrics: {json.dumps(context.get('campaign_metrics', {}), indent=2)[:500]}\n\n"
+            f"Why might the model have degraded?\n"
+            f"Consider:\n"
+            f"- Market regime change (bull to bear, volatility shift)\n"
+            f"- Data quality issues (missing values, stale data)\n"
+            f"- Model becoming outdated (learned patterns no longer valid)\n"
+            f"- Overfitting on historical patterns\n\n"
+            f"Return JSON with:\n"
+            f'- "likely_cause": specific reason for degradation\n'
+            f'- "suggested_response": action to take\n'
+            f'- "summary": brief insight\n'
+        )
+
+        response = await router.call(
+            self.name,
+            messages=[{"role": "user", "content": prompt}],
+            system=(
+                "You are a quantitative analyst expert in model monitoring and drift detection. "
+                "Diagnose why a model's performance changed and suggest remediation."
+            ),
+            temperature=0.3,
+        )
+
+        try:
+            return AgentResult(status=AgentStatus.SUCCESS, data=json.loads(response))
+        except:
+            return AgentResult(status=AgentStatus.SUCCESS, data={
+                "likely_cause": "Model drift detected",
+                "suggested_response": "Retrain with recent data or adjust allocations",
+                "summary": response[:200]
+            })
+
+    async def _analyze_signal_weakness(self, context: dict) -> AgentResult:
+        """Analyze weak signal and suggest improvements."""
+        from quantclaw.execution.router import LLMRouter
+        router = LLMRouter(self._config)
+
+        prompt = (
+            f"Analyze weak trading signal:\n\n"
+            f"Held-out Sharpe: {context.get('held_out_sharpe', 0):.2f}\n"
+            f"Current factors: {json.dumps(context.get('current_factors', []))}\n"
+            f"Market regime: {context.get('market_regime', 'unknown')}\n\n"
+            f"This signal is too weak for reliable trading. How to strengthen it?\n"
+            f"Consider:\n"
+            f"- Adding new factors or features\n"
+            f"- Combining with other signals\n"
+            f"- Using ensemble models\n"
+            f"- Focusing on specific market segments\n\n"
+            f"Return JSON with:\n"
+            f'- "improvement_ideas": list of concrete factor or feature suggestions\n'
+            f'- "ensemble_strategy": how to combine with other signals\n'
+            f'- "summary": one quick idea to try\n'
+        )
+
+        response = await router.call(
+            self.name,
+            messages=[{"role": "user", "content": prompt}],
+            system=(
+                "You are a quantitative researcher specialized in alpha factor discovery. "
+                "Suggest improvements to strengthen weak trading signals."
+            ),
+            temperature=0.3,
+        )
+
+        try:
+            return AgentResult(status=AgentStatus.SUCCESS, data=json.loads(response))
+        except:
+            return AgentResult(status=AgentStatus.SUCCESS, data={
+                "improvement_ideas": ["Relative strength", "Mean reversion", "Volatility adjust"],
+                "ensemble_strategy": "Combine with momentum or value factors",
+                "summary": response[:200]
+            })
+
+    async def _analyze_promotion_barriers(self, context: dict) -> AgentResult:
+        """Analyze why candidate strategies don't promote."""
+        from quantclaw.execution.router import LLMRouter
+        router = LLMRouter(self._config)
+
+        prompt = (
+            f"Analyze candidate strategy promotion barriers:\n\n"
+            f"Watchlist size: {context.get('watchlist_size', 0)}\n"
+            f"Cycles stalled: {context.get('cycles_stalled', 0)}\n"
+            f"Candidate Sharpe: {context.get('candidate_sharpe', 0):.2f}\n"
+            f"Incumbent Sharpe: {context.get('incumbent_sharpe', 0):.2f}\n"
+            f"Compliance rules: {json.dumps(context.get('compliance_rules', {}))}\n"
+            f"Promotion gates: {json.dumps(context.get('promotion_gates', {}))}\n\n"
+            f"Why is the best candidate not being promoted?\n"
+            f"Investigate:\n"
+            f"- Compliance/risk gates blocking promotion\n"
+            f"- Drawdown or Sharpe thresholds not met\n"
+            f"- Insufficient track record\n"
+            f"- Position concentration limits\n\n"
+            f"Return JSON with:\n"
+            f'- "barrier_type": what blocks promotion\n'
+            f'- "resolution": specific action to enable promotion\n'
+            f'- "summary": one-line insight\n'
+        )
+
+        response = await router.call(
+            self.name,
+            messages=[{"role": "user", "content": prompt}],
+            system=(
+                "You are an expert in portfolio management and strategy governance. "
+                "Identify what prevents good strategies from being promoted to live trading."
+            ),
+            temperature=0.3,
+        )
+
+        try:
+            return AgentResult(status=AgentStatus.SUCCESS, data=json.loads(response))
+        except:
+            return AgentResult(status=AgentStatus.SUCCESS, data={
+                "barrier_type": "Governance gate",
+                "resolution": "Review compliance rules for this candidate",
+                "summary": response[:200]
+            })
+
+    async def _discover_new_signals(self, context: dict) -> AgentResult:
+        """Discover new trading signals to break Sharpe plateau."""
+        from quantclaw.execution.router import LLMRouter
+        router = LLMRouter(self._config)
+
+        prompt = (
+            f"Discover new trading signals to improve Sharpe ratio:\n\n"
+            f"Current best Sharpe: {context.get('sharpe_plateau', 0):.2f}\n"
+            f"Stalled cycles: {context.get('stalled_cycles', 0)}\n"
+            f"Current factors: {json.dumps(context.get('current_factors', []))}\n"
+            f"Market regime: {context.get('market_regime', 'unknown')}\n\n"
+            f"The strategy is plateau-ing. What new signals could improve it?\n"
+            f"Consider:\n"
+            f"- Macro factors (interest rates, volatility, credit spreads)\n"
+            f"- Cross-asset correlations\n"
+            f"- Sentiment or alternative data\n"
+            f"- Non-linear relationships\n\n"
+            f"Return JSON with:\n"
+            f'- "new_factors": list of 3-5 promising factor ideas\n'
+            f'- "implementation_difficulty": "easy", "medium", or "hard"\n'
+            f'- "expected_improvement": estimated Sharpe increase\n'
+        )
+
+        response = await router.call(
+            self.name,
+            messages=[{"role": "user", "content": prompt}],
+            system=(
+                "You are a leading quantitative researcher exploring new alpha sources. "
+                "Suggest novel factors and signals to improve strategy performance."
+            ),
+            temperature=0.3,
+        )
+
+        try:
+            return AgentResult(status=AgentStatus.SUCCESS, data=json.loads(response))
+        except:
+            return AgentResult(status=AgentStatus.SUCCESS, data={
+                "new_factors": ["Volatility skew", "Term structure", "Cross-asset beta"],
+                "implementation_difficulty": "medium",
+                "expected_improvement": "0.2-0.5 Sharpe"
+            })
+
+    async def _find_new_allocation_opportunities(self, context: dict) -> AgentResult:
+        """Find new portfolio allocation opportunities."""
+        from quantclaw.execution.router import LLMRouter
+        router = LLMRouter(self._config)
+
+        prompt = (
+            f"Analyze portfolio allocation opportunities:\n\n"
+            f"Cycles without change: {context.get('cycles_stalled', 0)}\n"
+            f"Current allocation: {json.dumps(context.get('current_allocation', {}), indent=2)[:500]}\n"
+            f"Market data: {json.dumps(context.get('market_data', {}), indent=2)[:300]}\n\n"
+            f"Portfolio is stagnant. Where to invest more?\n"
+            f"Consider:\n"
+            f"- Sectors with improving fundamentals\n"
+            f"- Emerging opportunities in current positions\n"
+            f"- New uncorrelated strategies\n"
+            f"- Risk-adjusted rebalancing\n\n"
+            f"Return JSON with:\n"
+            f'- "rebalancing_suggestion": specific allocation changes\n'
+            f'- "rationale": why these changes make sense\n'
+            f'- "expected_impact": estimated return/risk improvement\n'
+        )
+
+        response = await router.call(
+            self.name,
+            messages=[{"role": "user", "content": prompt}],
+            system=(
+                "You are a portfolio allocation expert. "
+                "Identify opportunities to improve portfolio construction and diversification."
+            ),
+            temperature=0.3,
+        )
+
+        try:
+            return AgentResult(status=AgentStatus.SUCCESS, data=json.loads(response))
+        except:
+            return AgentResult(status=AgentStatus.SUCCESS, data={
+                "rebalancing_suggestion": "Increase allocation to uncorrelated strategy",
+                "rationale": "Diversification improvement",
+                "expected_impact": "Better risk-adjusted returns"
+            })

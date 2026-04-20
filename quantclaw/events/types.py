@@ -35,6 +35,8 @@ class EventType(StrEnum):
     ORCHESTRATION_EVALUATION = "orchestration.evaluation"
     ORCHESTRATION_CAMPAIGN_UPDATED = "orchestration.campaign_updated"
     ORCHESTRATION_ALLOCATION_UPDATED = "orchestration.allocation_updated"
+    DIAGNOSTIC_ANOMALY_DETECTED = "diagnostic.anomaly_detected"
+    DIAGNOSTIC_INVESTIGATION_COMPLETE = "diagnostic.investigation_complete"
 
 @dataclass
 class Event:
