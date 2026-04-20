@@ -1,0 +1,27 @@
+# Exclude from npm package
+__pycache__/
+*.py[cod]
+*.egg-info/
+.next/
+node_modules/
+data/
+tests/
+docs/
+photo_assets/
+.github/
+.vscode/
+.idea/
+.env
+*.db
+quantclaw.yaml
+strategies/
+package-lock.json
+quantclaw/**/package-lock.json
+quantclaw/**/__pycache__
+quantclaw/**/.next
+quantclaw/**/node_modules
+CODE_OF_CONDUCT.md
+CONTRIBUTING.md
+pyproject.toml
+*.egg-info
+.gitignore

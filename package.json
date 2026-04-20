@@ -1,0 +1,30 @@
+{
+  "name": "quantclaw",
+  "version": "0.1.8",
+  "description": "Open-source quant trading superagent harness",
+  "bin": {
+    "quantclaw": "bin/quantclaw.mjs"
+  },
+  "files": [
+    "bin/",
+    "quantclaw/",
+    "start.py",
+    "README.md",
+    "LICENSE",
+    "!quantclaw/**/__pycache__",
+    "!quantclaw/**/node_modules",
+    "!quantclaw/**/.next",
+    "!quantclaw/**/package-lock.json"
+  ],
+  "scripts": {
+    "postinstall": "node bin/postinstall.mjs"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "publishConfig": {
+    "tag": "latest"
+  },
+  "license": "MIT",
+  "keywords": ["quant", "trading", "ai", "agents", "backtesting"]
+}

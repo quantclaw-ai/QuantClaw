@@ -1,0 +1,257 @@
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@300;400;500;600;700&family=Exo+2:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme inline {
+  --color-void: #050911;
+  --color-hull: #0a0f1c;
+  --color-keel: #0e1628;
+
+  --color-trace: #0f1e3a;
+  --color-trace-glow: #153060;
+
+  --color-gold: #d4a517;
+  --color-gold-light: #e8c84a;
+  --color-gold-dim: #8b6d10;
+
+  --color-claw: #dc3545;
+  --color-claw-light: #ff4d5e;
+  --color-claw-dim: #8b1a25;
+
+  --color-circuit: #0e6b80;
+  --color-circuit-light: #12a8a0;
+  --color-circuit-dim: #064e5e;
+
+  --color-success: #12a8a0;
+  --color-danger: #dc3545;
+  --color-warning: #d4a517;
+  --color-muted: #3a4e6e;
+
+  --font-display: 'Rajdhani', sans-serif;
+  --font-body: 'Exo 2', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BASE
+   ═══════════════════════════════════════════════════════════════ */
+
+body {
+  font-family: 'Exo 2', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--color-void);
+  color: #b0bdd0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CIRCUIT BOARD — derived from the crab image aesthetic
+   Sparse, elegant, mostly dark. Traces are dim and thin.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Body background — barely visible sparse traces */
+.circuit-board {
+  background-color: var(--color-void);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cpath d='M0,80 H120 V200' stroke='%230e6b80' stroke-width='0.6' fill='none' opacity='0.09'/%3E%3Cpath d='M400,150 H300 V250 H220' stroke='%230e6b80' stroke-width='0.6' fill='none' opacity='0.07'/%3E%3Cpath d='M180,0 V100 H280' stroke='%230e6b80' stroke-width='0.4' fill='none' opacity='0.06'/%3E%3Cpath d='M60,400 V320 H160 V260' stroke='%230e6b80' stroke-width='0.6' fill='none' opacity='0.08'/%3E%3Ccircle cx='120' cy='80' r='2' fill='%230e6b80' opacity='0.12'/%3E%3Ccircle cx='300' cy='150' r='2' fill='%230e6b80' opacity='0.10'/%3E%3Ccircle cx='120' cy='200' r='1.5' fill='%230e6b80' opacity='0.10'/%3E%3Ccircle cx='160' cy='260' r='1.5' fill='%230e6b80' opacity='0.08'/%3E%3C/svg%3E");
+  background-size: 400px 400px;
+}
+
+/* Sidebar — slightly denser, still sparse */
+.circuit-dense {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cpath d='M0,40 H60 V100' stroke='%230e6b80' stroke-width='0.5' fill='none' opacity='0.10'/%3E%3Cpath d='M200,70 H150 V130 H100' stroke='%230e6b80' stroke-width='0.5' fill='none' opacity='0.08'/%3E%3Cpath d='M80,0 V50 H130' stroke='%230e6b80' stroke-width='0.4' fill='none' opacity='0.07'/%3E%3Cpath d='M30,200 V160 H90' stroke='%230e6b80' stroke-width='0.5' fill='none' opacity='0.09'/%3E%3Ccircle cx='60' cy='40' r='1.5' fill='%230e6b80' opacity='0.12'/%3E%3Ccircle cx='100' cy='130' r='1.5' fill='%230e6b80' opacity='0.10'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   GLOWING EFFECTS
+   ═══════════════════════════════════════════════════════════════ */
+
+.glow-gold {
+  box-shadow: 0 0 15px rgba(212,165,23,0.15), 0 0 40px rgba(212,165,23,0.06), inset 0 0 15px rgba(212,165,23,0.03);
+}
+.glow-circuit {
+  box-shadow: 0 0 15px rgba(14,107,128,0.15), 0 0 40px rgba(14,107,128,0.06), inset 0 0 15px rgba(14,107,128,0.03);
+}
+.glow-claw {
+  box-shadow: 0 0 15px rgba(220,53,69,0.15), 0 0 40px rgba(220,53,69,0.06), inset 0 0 15px rgba(220,53,69,0.03);
+}
+
+.text-glow-gold { text-shadow: 0 0 10px rgba(212,165,23,0.5), 0 0 30px rgba(212,165,23,0.2); }
+.text-glow-circuit { text-shadow: 0 0 10px rgba(14,107,128,0.5), 0 0 30px rgba(14,107,128,0.2); }
+.text-glow-claw { text-shadow: 0 0 10px rgba(220,53,69,0.5), 0 0 30px rgba(220,53,69,0.2); }
+
+/* ═══════════════════════════════════════════════════════════════
+   CARD — PCB COMPONENT mounted on the board
+   ═══════════════════════════════════════════════════════════════ */
+
+.card-cyber {
+  position: relative;
+  background: linear-gradient(135deg, rgba(10,15,28,0.95), rgba(14,22,40,0.9));
+  border: 1px solid rgba(14,107,128,0.15);
+  border-radius: 8px;
+  transition: border-color 0.3s, box-shadow 0.3s;
+  overflow: hidden;
+}
+
+/* Circuit trace corners — like a PCB component's solder pads */
+.card-cyber::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 20px; height: 20px;
+  border-top: 2px solid rgba(14,107,128,0.25);
+  border-left: 2px solid rgba(14,107,128,0.25);
+  pointer-events: none;
+}
+.card-cyber::after {
+  content: '';
+  position: absolute;
+  bottom: 0; right: 0;
+  width: 20px; height: 20px;
+  border-bottom: 2px solid rgba(14,107,128,0.15);
+  border-right: 2px solid rgba(14,107,128,0.15);
+  pointer-events: none;
+}
+
+.card-cyber:hover {
+  border-color: rgba(14,107,128,0.3);
+  box-shadow: 0 0 25px rgba(14,107,128,0.08), inset 0 0 25px rgba(14,107,128,0.02);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TRACE LINE — horizontal connector
+   ═══════════════════════════════════════════════════════════════ */
+
+.trace-line {
+  height: 1px;
+  background: linear-gradient(90deg,
+    transparent,
+    rgba(14,107,128,0.3) 15%,
+    rgba(14,107,128,0.5) 30%,
+    rgba(212,165,23,0.3) 50%,
+    rgba(14,107,128,0.5) 70%,
+    rgba(14,107,128,0.3) 85%,
+    transparent
+  );
+}
+
+.trace-line-v {
+  width: 1px;
+  background: linear-gradient(180deg,
+    transparent,
+    rgba(14,107,128,0.2) 20%,
+    rgba(220,53,69,0.1) 50%,
+    rgba(14,107,128,0.2) 80%,
+    transparent
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NODE DOT — connection point on the circuit
+   ═══════════════════════════════════════════════════════════════ */
+
+.node-dot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--color-circuit);
+  box-shadow: 0 0 8px rgba(14,107,128,0.6), 0 0 2px rgba(14,107,128,0.9);
+  animation: node-pulse 3s ease-in-out infinite;
+}
+
+@keyframes node-pulse {
+  0%, 100% { opacity: 0.4; box-shadow: 0 0 4px rgba(14,107,128,0.3); }
+  50% { opacity: 1; box-shadow: 0 0 10px rgba(14,107,128,0.7), 0 0 3px rgba(14,107,128,1); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCANLINES — CRT overlay
+   ═══════════════════════════════════════════════════════════════ */
+
+.scanlines {
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(14,107,128,0.012) 3px,
+    rgba(14,107,128,0.012) 4px
+  );
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CRAB EFFECTS — the creature lives in the circuit
+   ═══════════════════════════════════════════════════════════════ */
+
+@keyframes crab-breathe {
+  0%, 100% {
+    filter: drop-shadow(0 0 20px rgba(212,165,23,0.2)) drop-shadow(0 0 40px rgba(220,53,69,0.1)) drop-shadow(0 0 60px rgba(14,107,128,0.08));
+  }
+  50% {
+    filter: drop-shadow(0 0 30px rgba(212,165,23,0.35)) drop-shadow(0 0 50px rgba(220,53,69,0.2)) drop-shadow(0 0 80px rgba(14,107,128,0.15));
+  }
+}
+
+.crab-hero {
+  animation: crab-breathe 4s ease-in-out infinite;
+}
+
+@keyframes crab-idle {
+  0%, 100% { filter: drop-shadow(0 0 6px rgba(212,165,23,0.25)); }
+  50% { filter: drop-shadow(0 0 10px rgba(212,165,23,0.45)) drop-shadow(0 0 3px rgba(220,53,69,0.15)); }
+}
+
+.crab-sidebar {
+  animation: crab-idle 3s ease-in-out infinite;
+}
+
+/* Crab nest — radial glow behind the logo */
+.crab-nest::after {
+  content: '';
+  position: absolute;
+  inset: -15px;
+  background: radial-gradient(ellipse, rgba(212,165,23,0.06) 0%, rgba(220,53,69,0.03) 40%, transparent 70%);
+  pointer-events: none;
+  animation: glow-pulse 4s ease-in-out infinite;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SCROLLBAR
+   ═══════════════════════════════════════════════════════════════ */
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--color-void); }
+::-webkit-scrollbar-thumb { background: rgba(14,107,128,0.25); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(14,107,128,0.4); }
+
+select { color-scheme: dark; }
+
+/* ═══════════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════════ */
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes typing-dot {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+.animate-float { animation: float 5s ease-in-out infinite; }
+.animate-glow-pulse { animation: glow-pulse 3s ease-in-out infinite; }
+.animate-fade-up { animation: fade-up 0.6s ease-out both; }
+.animate-scale-in { animation: scale-in 0.5s ease-out both; }

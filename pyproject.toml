@@ -1,0 +1,76 @@
+[project]
+name = "quantclaw"
+version = "0.1.0"
+description = "Open-source quant trading superagent harness. From beginner to autonomous quant trader."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.12"
+keywords = ["quant", "trading", "backtesting", "algorithmic-trading", "finance"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+dependencies = [
+    "click>=8.1",
+    "pyyaml>=6.0",
+    "aiosqlite>=0.20",
+    "aiohttp>=3.9",
+    "croniter>=2.0",
+    "rich>=13.0",
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "yfinance>=0.2",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+llm = ["anthropic>=0.40", "openai>=1.50"]
+ml = ["scikit-learn>=1.4", "lightgbm>=4.0"]
+vectorbt = ["vectorbt>=0.26"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.3"]
+
+# CLI is handled by the npm package (bin/quantclaw.mjs), not Python
+# [project.scripts]
+# quantclaw = "quantclaw.main:cli"
+
+[project.entry-points."quantclaw.plugins"]
+broker_ib = "quantclaw.plugins.builtin.broker_ib:IBBrokerPlugin"
+asset_us_equities = "quantclaw.plugins.builtin.asset_us_equities:USEquitiesAssetPlugin"
+engine_builtin = "quantclaw.plugins.builtin.engine_builtin:BuiltinEnginePlugin"
+# Free data plugins (no API key, auto-ingested)
+data_yfinance = "quantclaw.plugins.builtin.data_yfinance:YFinanceDataPlugin"
+data_fred = "quantclaw.plugins.builtin.data_fred:FredDataPlugin"
+data_sec_edgar = "quantclaw.plugins.builtin.data_sec_edgar:SecEdgarDataPlugin"
+data_worldbank = "quantclaw.plugins.builtin.data_worldbank:WorldBankDataPlugin"
+data_imf = "quantclaw.plugins.builtin.data_imf:ImfDataPlugin"
+data_bls = "quantclaw.plugins.builtin.data_bls:BlsDataPlugin"
+data_treasury = "quantclaw.plugins.builtin.data_treasury:TreasuryDataPlugin"
+data_ecb = "quantclaw.plugins.builtin.data_ecb:EcbDataPlugin"
+data_bis = "quantclaw.plugins.builtin.data_bis:BisDataPlugin"
+data_cftc = "quantclaw.plugins.builtin.data_cftc:CftcDataPlugin"
+data_openinsider = "quantclaw.plugins.builtin.data_openinsider:OpenInsiderDataPlugin"
+data_stooq = "quantclaw.plugins.builtin.data_stooq:StooqDataPlugin"
+# API-key data plugins (require free registration)
+data_alphavantage = "quantclaw.plugins.builtin.data_alphavantage:AlphaVantageDataPlugin"
+data_nasdaq = "quantclaw.plugins.builtin.data_nasdaq:NasdaqDataPlugin"
+data_twelvedata = "quantclaw.plugins.builtin.data_twelvedata:TwelveDataPlugin"
+data_eia = "quantclaw.plugins.builtin.data_eia:EIADataPlugin"
+data_finnhub = "quantclaw.plugins.builtin.data_finnhub:FinnhubDataPlugin"
+data_tiingo = "quantclaw.plugins.builtin.data_tiingo:TiingoDataPlugin"
+data_fmp = "quantclaw.plugins.builtin.data_fmp:FMPDataPlugin"
+data_simfin = "quantclaw.plugins.builtin.data_simfin:SimFinDataPlugin"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["quantclaw*"]
+
+[tool.ruff]
+line-length = 120

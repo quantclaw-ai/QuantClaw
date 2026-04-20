@@ -1,0 +1,205 @@
+models:
+  sentinel: sonnet
+  reporter: sonnet
+  ingestor: opus
+  validator: opus
+  debugger: opus
+  compliance: opus
+  planner: opus
+  researcher: opus
+  risk_monitor: opus
+  trainer: opus
+  executor: opus
+  miner: gpt
+
+temperatures:
+  miner: 0.9
+  researcher: 0.7
+  scheduler: 0.5
+  trainer: 0.5
+  debugger: 0.3
+  reporter: 0.3
+  ingestor: 0.2
+  validator: 0.2
+  sentinel: 0.2
+  risk_monitor: 0.1
+  executor: 0.1
+  compliance: 0.1
+
+providers:
+  opus:
+    provider: anthropic
+    model: claude-opus-4-6
+  sonnet:
+    provider: anthropic
+    model: claude-sonnet-4-6
+  gpt:
+    provider: openai
+    model: gpt-4o
+  local:
+    provider: ollama
+    model: llama3.1
+
+plugins:
+  broker: broker_ib
+  data:
+    # Free sources (auto-ingested, no API key needed)
+    - data_yfinance
+    - data_fred
+    - data_sec_edgar
+    - data_worldbank
+    - data_imf
+    - data_bls
+    - data_treasury
+    - data_ecb
+    - data_bis
+    - data_cftc
+    - data_openinsider
+    - data_stooq
+    # API-key sources are appended here during onboarding
+  engine: engine_builtin
+  asset: [asset_us_equities]
+
+schedules: {}
+
+notification_routes:
+  - event: "market.*"
+    channels: [telegram, discord]
+    urgency: immediate
+  - event: "trade.reconciliation_fail"
+    channels: [telegram, discord, slack]
+    urgency: immediate
+  - event: "agent.task_failed"
+    channels: [telegram, discord]
+    urgency: high
+  - event: "cost.budget_warning"
+    channels: [telegram]
+    urgency: high
+  - event: "pipeline.*"
+    channels: [discord]
+    urgency: normal
+  - event: "factor.*"
+    channels: [discord]
+    urgency: normal
+  - event: "schedule.triggered"
+    channels: [discord]
+    urgency: low
+
+notifications:
+  telegram:
+    bot_token: "${TELEGRAM_BOT_TOKEN}"
+    chat_id: "${TELEGRAM_CHAT_ID}"
+  discord:
+    webhook_url: "${DISCORD_WEBHOOK_URL}"
+  slack:
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+
+risk:
+  max_drawdown: -0.10
+  max_position_pct: 0.05
+  auto_liquidate_at: -0.15
+
+achievements: true
+
+orchestration:
+  max_cycles_per_goal: 3
+  cycle_timeout_minutes: 20
+  ooda_interval: 30
+  max_iterations_per_cycle: 3
+  chat_step_starts: false
+  exploration:
+    explore_temp: 0.7
+    exploit_temp: 0.2
+    balanced_temp: 0.4
+    high_explore_until: 5
+    balanced_until: 15
+  max_chat_history: 10
+  max_debugger_retries: 5
+  loop_similarity_threshold: 0.85
+
+campaigns:
+  auto_activate_autopilot: true
+  checkpoint_every_cycles: 3
+  # 0 = unlimited. Autopilot should run until something genuinely fails or
+  # the user stops it; the per-phase health checks below catch real problems.
+  max_total_cycles: 0
+  # Stagnation only applies to SEARCH phases (discover/validate). Paper phase
+  # ignores it because flat Sharpe is the expected steady state of operation.
+  max_stagnant_cycles: 6
+  max_refine_cycles: 3
+  min_improvement_delta: 0.05
+  min_discovery_cycles: 2
+  discovery_promote_sharpe: 0.75
+  validation_promote_held_out_sharpe: 0.25
+  paper_candidate_min_sharpe: 1.0
+  paper_watchlist_min_held_out_sharpe: 0.15
+  max_active_paper_deployments: 2
+  paper_watchlist_size: 3
+  max_consecutive_failures: 2
+  # Paper-phase health: pause if the executor produces no orders for this
+  # many consecutive cycles (signals broker/data pipeline trouble).
+  max_consecutive_paper_failures: 5
+  # Shadow search: every Nth paper cycle, ALSO run the discovery pipeline
+  # to look for a challenger that could displace the incumbent strategy.
+  # 0 disables shadow search (paper runs steady-state forever).
+  paper_shadow_search_every: 3
+  broad_goal_patterns:
+    - "make money"
+    - "make me cash"
+    - "go make money"
+    - "go make me cash"
+    - "find profitable"
+    - "profitable strategies"
+    - "find alpha"
+    - "find strategies"
+    - "compound capital"
+    - "grow capital"
+
+search:
+  provider: duckduckgo
+  api_key: "${SEARCH_API_KEY}"
+
+sandbox:
+  enabled: true
+  timeout: 60
+  max_output: 102400
+  max_memory_mb: 512
+  max_concurrent: 3
+
+# LLM cost tracking. LLMRouter records per-call USD and publishes
+# cost.budget_warning events when any threshold is newly crossed.
+cost:
+  budget_usd: 10.0
+  warning_thresholds: [0.5, 0.8, 1.0]
+  # Rates per 1M tokens [input, output]. Longest-substring match wins;
+  # anything unmatched (local models, custom deployments) is counted at $0.
+  rates:
+    claude-opus:   [15.00, 75.00]
+    claude-sonnet: [3.00, 15.00]
+    claude-haiku:  [0.80, 4.00]
+    gpt-4o-mini:   [0.15, 0.60]
+    gpt-4o:        [2.50, 10.00]
+    gpt-5:         [5.00, 20.00]
+    o1:            [15.00, 60.00]
+
+contracts:
+  min_sharpe: 0.0
+  max_overfit_ratio: 3.0
+  min_sample_size: 200
+  min_trades: 10
+  min_held_out_sharpe: 0.0
+  held_out_months: 3
+
+evaluator:
+  calibration_interval: 5
+  max_calibration_rules: 10
+  divergence_threshold: 0.5
+
+scaffolding_experiments:
+  enabled: false
+  components: []
+
+# Verbose agent logging — shows full input/output data for each agent
+# Toggle: set to true/false in quantclaw.yaml or here
+# Location: quantclaw/config/default.yaml line ~120
+verbose_agent_logging: true
