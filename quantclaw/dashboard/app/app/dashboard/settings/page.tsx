@@ -524,6 +524,7 @@ export default function SettingsPage() {
   const [ollamaStatus, setOllamaStatus] = useState<"checking" | "online" | "offline">("checking");
   const [oauthStatus, setOauthStatus] = useState<Record<string, { authenticated: boolean; flow_status?: string }>>({});
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
+  const [oauthAuthUrl, setOauthAuthUrl] = useState<Record<string, string>>({});
 
   useEffect(() => {
     // Check OAuth status for pairable providers
@@ -594,9 +595,18 @@ export default function SettingsPage() {
 
   const startOAuth = async (providerId: string) => {
     setOauthLoading(providerId);
+    setOauthAuthUrl((prev) => ({ ...prev, [providerId]: "" }));
     try {
-      // Start the OAuth flow (backend opens browser)
-      await fetch(`${API}/api/oauth/start/${providerId}`, { method: "POST" });
+      // Start the OAuth flow (backend spawns localhost callback listener and
+      // tries to open the system browser via webbrowser.open). webbrowser.open
+      // can fail silently on some setups, so we also open it from the frontend
+      // and surface the URL as a manual fallback link.
+      const startRes = await fetch(`${API}/api/oauth/start/${providerId}`, { method: "POST" });
+      const startData = await startRes.json();
+      if (startData.auth_url) {
+        setOauthAuthUrl((prev) => ({ ...prev, [providerId]: startData.auth_url }));
+        try { window.open(startData.auth_url, "_blank", "noopener,noreferrer"); } catch {}
+      }
 
       // Poll for completion
       const poll = setInterval(async () => {
@@ -777,9 +787,29 @@ export default function SettingsPage() {
                           </button>
                         </div>
                       ) : oauthLoading === activeProvider ? (
-                        <div className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gold/30 bg-gold/5 text-gold text-sm">
-                          <span className="w-4 h-4 border-2 border-gold border-t-transparent rounded-full animate-spin" />
-                          {({ en: "Waiting for authorization...", zh: "等待授权中...", ja: "認証を待機中..." } as Record<string, string>)[lang] || "Waiting for authorization..."}
+                        <div className="w-full flex flex-col gap-2">
+                          <div className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gold/30 bg-gold/5 text-gold text-sm">
+                            <span className="w-4 h-4 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+                            {({ en: "Waiting for authorization...", zh: "等待授权中...", ja: "認証を待機中..." } as Record<string, string>)[lang] || "Waiting for authorization..."}
+                          </div>
+                          <div className="flex items-center justify-between gap-3 px-1 text-[10px] font-mono text-[#5a6e8c]">
+                            {oauthAuthUrl[activeProvider] ? (
+                              <a
+                                href={oauthAuthUrl[activeProvider]}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-circuit-light hover:text-gold transition-colors underline-offset-2 hover:underline"
+                              >
+                                {({ en: "Open auth URL manually", zh: "手动打开授权链接", ja: "認証 URL を手動で開く" } as Record<string, string>)[lang] || "Open auth URL manually"}
+                              </a>
+                            ) : <span />}
+                            <button
+                              onClick={() => setOauthLoading(null)}
+                              className="text-[#5a6e8c] hover:text-claw transition-colors cursor-pointer"
+                            >
+                              {({ en: "cancel", zh: "取消", ja: "キャンセル" } as Record<string, string>)[lang] || "cancel"}
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         <button
