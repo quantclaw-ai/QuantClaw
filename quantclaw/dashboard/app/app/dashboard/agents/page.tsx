@@ -132,13 +132,20 @@ export default function AgentsPage() {
   const { lang } = useLang();
   const t = translations[lang] || translations.en;
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [assignments, setAssignments] = useState<Record<string, string>>(() => {
-    if (typeof window === "undefined") return {};
-    const savedAssignments = localStorage.getItem("quantclaw_agent_models");
-    return savedAssignments ? JSON.parse(savedAssignments) : {};
-  });
+  // Initialize empty on both server and client; load saved assignments after
+  // mount to avoid hydration mismatch.
+  const [assignments, setAssignments] = useState<Record<string, string>>({});
   const [saved, setSaved] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+
+  useEffect(() => {
+    const savedAssignments = localStorage.getItem("quantclaw_agent_models");
+    if (savedAssignments) {
+      try {
+        setAssignments(JSON.parse(savedAssignments));
+      } catch {}
+    }
+  }, []);
 
   useEffect(() => {
     fetch(`${API}/api/agents`)

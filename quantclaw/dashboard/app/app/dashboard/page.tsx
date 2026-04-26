@@ -80,12 +80,13 @@ export default function DashboardHome() {
     setSelectedAgent(agentName);
   };
 
-  const [chatWidth, setChatWidth] = useState(() => {
-    if (typeof window !== "undefined") {
-      return parseInt(localStorage.getItem("quantclaw_chat_width") || "480", 10);
-    }
-    return 480;
-  });
+  // Initialize to the default on both server and client to avoid hydration
+  // mismatch; the saved width is applied in the effect below after mount.
+  const [chatWidth, setChatWidth] = useState(480);
+  useEffect(() => {
+    const saved = localStorage.getItem("quantclaw_chat_width");
+    if (saved) setChatWidth(parseInt(saved, 10));
+  }, []);
   const [dragging, setDragging] = useState(false);
 
   const handleDragStart = () => setDragging(true);

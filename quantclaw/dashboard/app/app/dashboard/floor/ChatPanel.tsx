@@ -283,24 +283,22 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
   const [targetAgent, setTargetAgent] = useState("scheduler");
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
-  const [activeProvider, setActiveProvider] = useState(() => {
-    if (typeof window === "undefined") return "ollama";
-    return localStorage.getItem("quantclaw_provider") || "ollama";
-  });
-  const [selectedModel, setSelectedModel] = useState(() => {
-    if (typeof window === "undefined") return "";
-    // Trust the last saved selection. If it's no longer valid, the live catalog
-    // will populate currentModels and the user can pick again.
-    return localStorage.getItem("quantclaw_model") || "";
-  });
+  // Initialize to defaults; load saved values after mount to avoid hydration
+  // mismatch between server-rendered HTML and client localStorage.
+  const [activeProvider, setActiveProvider] = useState("ollama");
+  const [selectedModel, setSelectedModel] = useState("");
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [showModelPicker, setShowModelPicker] = useState(false);
-  const [fontSize, setFontSize] = useState(() => {
-    if (typeof window !== "undefined") {
-      return parseInt(localStorage.getItem("quantclaw_chat_fontsize") || "16", 10);
-    }
-    return 16;
-  });
+  const [fontSize, setFontSize] = useState(16);
+
+  useEffect(() => {
+    const provider = localStorage.getItem("quantclaw_provider");
+    if (provider) setActiveProvider(provider);
+    const model = localStorage.getItem("quantclaw_model");
+    if (model) setSelectedModel(model);
+    const fs = localStorage.getItem("quantclaw_chat_fontsize");
+    if (fs) setFontSize(parseInt(fs, 10));
+  }, []);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
