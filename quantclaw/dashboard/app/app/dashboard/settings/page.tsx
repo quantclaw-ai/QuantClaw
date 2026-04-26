@@ -55,6 +55,8 @@ const translations: Record<Lang, Record<string, string>> = {
     ollamaOffline: "Ollama is not running — start it or select another provider",
     ollamaNoModels: "No models installed — run: ollama pull qwen3:8b",
     selectedModel: "Active model",
+    customModel: "or type any model name (gpt-5.5, etc.)",
+    use: "Use",
     language: "Language",
     brokerConnection: "Broker Connection",
     brokerValue: "Paper Trading",
@@ -83,6 +85,8 @@ const translations: Record<Lang, Record<string, string>> = {
     ollamaOffline: "Ollama 未运行 — 请启动或选择其他提供商",
     ollamaNoModels: "未安装模型 — 请运行：ollama pull qwen3:8b",
     selectedModel: "当前模型",
+    customModel: "或输入任意模型名 (如 gpt-5.5)",
+    use: "使用",
     language: "语言",
     brokerConnection: "券商连接",
     brokerValue: "模拟交易",
@@ -108,6 +112,8 @@ const translations: Record<Lang, Record<string, string>> = {
     ollamaOffline: "Ollama が実行されていません — 起動するか他のプロバイダーを選択",
     ollamaNoModels: "モデル未インストール — 実行: ollama pull qwen3:8b",
     selectedModel: "使用中のモデル",
+    customModel: "または任意のモデル名を入力 (例: gpt-5.5)",
+    use: "使用",
     language: "言語",
     brokerConnection: "ブローカー接続",
     brokerValue: "ペーパートレード",
@@ -506,6 +512,7 @@ export default function SettingsPage() {
     if (typeof window === "undefined") return "";
     return localStorage.getItem("quantclaw_model") || "";
   });
+  const [customModelInput, setCustomModelInput] = useState("");
   const [ollamaStatus, setOllamaStatus] = useState<"checking" | "online" | "offline">("checking");
   const [oauthStatus, setOauthStatus] = useState<Record<string, { authenticated: boolean; flow_status?: string }>>({});
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
@@ -828,7 +835,47 @@ export default function SettingsPage() {
                         {m}
                       </button>
                     ))}
+                    {selectedModel && !liveModels.includes(selectedModel) && (
+                      <button
+                        onClick={() => selectModel(selectedModel)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-mono bg-gold/10 border border-gold/40 text-gold cursor-default"
+                        title="Custom model"
+                      >
+                        {selectedModel}
+                      </button>
+                    )}
                   </div>
+
+                  {/* Custom model input — for any release the catalog endpoint
+                      can't see (Codex subscription models, preview tiers, etc.) */}
+                  <div className="mt-3 flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={customModelInput}
+                      onChange={(e) => setCustomModelInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && customModelInput.trim()) {
+                          selectModel(customModelInput.trim());
+                          setCustomModelInput("");
+                        }
+                      }}
+                      placeholder={t.customModel}
+                      className="flex-1 bg-keel/40 border border-trace rounded-lg px-3 py-1.5 text-xs font-mono text-muted placeholder:text-[#2a3a5a] focus:outline-none focus:border-trace-glow"
+                    />
+                    <button
+                      onClick={() => {
+                        if (customModelInput.trim()) {
+                          selectModel(customModelInput.trim());
+                          setCustomModelInput("");
+                        }
+                      }}
+                      disabled={!customModelInput.trim()}
+                      className="px-3 py-1.5 rounded-lg text-xs font-mono bg-gold/10 border border-gold/40 text-gold hover:bg-gold/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      {t.use}
+                    </button>
+                  </div>
+
                   {selectedModel && (
                     <p className="text-[10px] text-[#2a3a5a] mt-2 font-mono">
                       {t.selectedModel}: {selectedModel}

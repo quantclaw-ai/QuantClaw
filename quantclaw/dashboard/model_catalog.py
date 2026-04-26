@@ -26,7 +26,18 @@ _cache_lock = asyncio.Lock()
 # Hardcoded baseline — only used when live fetch fails AND no key is configured.
 # Keep these conservative; the dynamic fetch is the source of truth.
 _FALLBACK_MODELS: dict[str, list[str]] = {
-    "openai": ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-4.1", "gpt-4o"],
+    # OpenAI Codex OAuth has no public model catalog endpoint, so OAuth-only
+    # users see this fallback list. The custom-model input on the settings page
+    # is the escape hatch for newer releases (gpt-5.5, gpt-6, etc.) until they
+    # show up here on a future package update.
+    "openai": [
+        "gpt-5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex",
+        "gpt-4.1",
+        "gpt-4o",
+    ],
     "anthropic": [
         "claude-opus-4-6",
         "claude-sonnet-4-6",
