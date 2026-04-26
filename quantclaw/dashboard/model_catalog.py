@@ -31,7 +31,6 @@ _FALLBACK_MODELS: dict[str, list[str]] = {
     # is the escape hatch for newer releases (gpt-5.5, gpt-6, etc.) until they
     # show up here on a future package update.
     "openai": [
-        "gpt-5",
         "gpt-5.4",
         "gpt-5.4-mini",
         "gpt-5.3-codex",

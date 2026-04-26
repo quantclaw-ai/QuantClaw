@@ -638,6 +638,21 @@ export default function SettingsPage() {
   const { models: liveModels, loading: modelsLoading, source: modelsSource, refresh: refreshModels } =
     useProviderModels(activeProvider, currentProviderConfig?.models ?? []);
 
+  // Migration: if the saved active model isn't in the catalog or the custom
+  // list yet (e.g. typed in an older build), backfill it so it shows up in
+  // every dropdown across the app.
+  useEffect(() => {
+    if (!activeProvider || !selectedModel || liveModels.length === 0) return;
+    if (liveModels.includes(selectedModel)) return;
+    const key = `quantclaw_custom_models_${activeProvider}`;
+    let existing: string[] = [];
+    try { existing = JSON.parse(localStorage.getItem(key) || "[]"); } catch {}
+    if (!existing.includes(selectedModel)) {
+      existing.push(selectedModel);
+      localStorage.setItem(key, JSON.stringify(existing));
+    }
+  }, [activeProvider, selectedModel, liveModels]);
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6 text-gold" style={{ fontFamily: "var(--font-display)" }}>{t.title}</h1>
