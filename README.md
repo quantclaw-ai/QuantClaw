@@ -4,7 +4,7 @@
 
 # QuantClaw
 
-### Open-Source Quant Trading Superagent Harness
+### Open-source campaign-driven agent harness for quantitative trading
 
 *autonomous quant trading just one prompt away*
 
@@ -19,7 +19,7 @@
 
 ---
 
-QuantClaw is an open-source quant trading harness that orchestrates 13 AI agents to handle the full trading lifecycle: data ingestion, signal generation, backtesting, live execution, risk monitoring, and reporting.
+QuantClaw is an open-source quant trading harness that orchestrates 12 AI agents — your **crewmates** on the trading floor — to handle the full lifecycle: data ingestion, signal generation, validation, live execution, risk monitoring, and reporting. You set a goal like *"go make me cash"*; the campaign engine compiles it into a paper-first state machine that only promotes to live when held-out validation passes.
 
 Two commands. Five minutes. You're trading.
 
@@ -30,7 +30,7 @@ npm install -g quantclaw@latest
 quantclaw start
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
+Open [http://localhost:24121](http://localhost:24121) in your browser.
 
 > **If `quantclaw start` is not recognized**, use `npx quantclaw start` instead. This works without PATH configuration.
 
@@ -72,25 +72,24 @@ QuantClaw supports multiple AI providers. Pick one during onboarding or configur
 
 **China users:** QuantClaw auto-detects your region and shows Chinese providers (DeepSeek, Qwen, Doubao, GLM, Kimi, ERNIE, Spark, etc.) with Chinese-language UI.
 
-## 13 AI Agents
+## 12 Crewmates on the Floor
 
-Each agent handles a specific part of the trading lifecycle. Assign different models to different agents based on their compute needs.
+Each crewmate is an agent with a scoped job, declared inputs/outputs, and a matching pet on the dashboard trading floor. Assign different models to different crewmates based on their compute needs.
 
-| Agent | Role | Tier |
-|-------|------|------|
-| **Scheduler** | Coordinates workflows between agents | Light |
-| **Ingestor** | Pulls market data and processes feeds | Medium |
+| Crewmate | Role | Tier |
+|----------|------|------|
+| **Scheduler** | Cron-triggered daemon that wakes the floor | Light |
+| **Sentinel** | Always-on market and event monitor | Medium |
+| **Researcher** | LLM-driven web search for factors and signals | Heavy |
+| **Ingestor** | Pulls market data and normalizes feeds into the parquet cache | Medium |
 | **Miner** | Factor mining with LLM-powered discovery | Heavy |
-| **Backtester** | Runs strategy backtests with realistic costs | Heavy |
-| **Researcher** | Analyzes markets, papers, and factor performance | Heavy |
-| **Risk Monitor** | Monitors drawdowns, exposure, and VaR | Heavy |
-| **Executor** | Handles order execution and broker integration | Medium |
 | **Reporter** | Generates portfolio summaries and P&L reports | Light |
 | **Trainer** | Trains ML models for signal generation | Heavy |
+| **Validator** | Runs backtests + held-out evaluation in one pass *(was Backtester + Evaluator)* | Heavy |
+| **Executor** | Handles order execution and broker integration | Medium |
+| **Risk Monitor** | Monitors drawdowns, exposure, and VaR | Medium |
 | **Compliance** | Checks trading against regulatory rules | Medium |
-| **Cost Tracker** | Monitors API usage and compute costs | Light |
-| **Debugger** | Diagnoses system issues and traces errors | Medium |
-| **Sentinel** | Always-on market monitoring daemon | Medium |
+| **Debugger** | Diagnoses pipeline failures and routes diagnostic feedback | Medium |
 
 ## Market Data
 
@@ -116,10 +115,14 @@ Dark-mode, multilingual (English / Chinese / Japanese) dashboard with:
 - **Model selector** -- Switch providers and models per conversation
 - **Agent configuration** -- Assign models to each agent, auto-assign by tier
 - **Portfolio overview** -- Positions, P&L, equity curve
-- **Strategy browser** -- 55 templates across beginner to advanced
+- **Strategy browser** -- templates grouped by strategy family
 - **Backtest runner** -- One-click strategy testing
 - **Risk monitoring** -- Drawdown, exposure, VaR limits
 - **Settings** -- Provider OAuth, API keys, language, notifications
+
+### Notifications
+
+Set up Telegram, Discord, and Slack during onboarding or later from **Dashboard -> Settings -> Notifications**. Credentials are written to your local `quantclaw.yaml`, which is ignored by git and npm packaging. Event routing rules live in `quantclaw/config/default.yaml` under `notification_routes`.
 
 ## Strategy Templates
 
@@ -146,32 +149,18 @@ class Strategy:
 
 55 templates included: momentum, mean reversion, pairs trading, risk parity, sector rotation, ML signal, options wheel, and more.
 
-## Progression System
-
-QuantClaw grows with you:
-
-| Level | Title | What Unlocks |
-|-------|-------|-------------|
-| 0 | Observer | Browse templates, explore backtests |
-| 1 | Paper Trader | Run backtests, paper trade |
-| 2 | Strategy Tinkerer | Edit parameters, compare strategies |
-| 3 | Live Trader | Real broker, live execution, alerts |
-| 4 | Strategist | Write custom strategies |
-| 5 | Quant | Factor mining, ML models, deep research |
-| 6 | Architect | Multi-strategy ensemble, custom plugins |
-
 ## Architecture
 
 ```
 quantclaw start
     |
-    +-- Python Backend (FastAPI, port 8000)
+    +-- Python Backend (FastAPI, localhost-only port 24120)
     |       Agent orchestration, data APIs, OAuth
     |
-    +-- Node.js Sidecar (Express, port 8001)
+    +-- Node.js Sidecar (Express, localhost-only port 24122)
     |       OpenAI/Anthropic OAuth proxy (subscription-based)
     |
-    +-- Next.js Dashboard (port 3000)
+    +-- Next.js Dashboard (localhost-only port 24121)
             Chat UI, onboarding, settings, i18n
 ```
 
