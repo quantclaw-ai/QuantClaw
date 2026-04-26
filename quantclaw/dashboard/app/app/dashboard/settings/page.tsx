@@ -222,9 +222,13 @@ function readStoredProviderKeys(): Record<string, string> {
 
 function DataSourcesSection({ lang }: { lang: string }) {
   const dt = dataI18n[lang] || dataI18n.en;
-  const [dataKeys, setDataKeys] = useState<Record<string, string>>(() => readStoredDataKeys());
+  const [dataKeys, setDataKeys] = useState<Record<string, string>>({});
   const [expanded, setExpanded] = useState<string | null>(null);
   const [keyInput, setKeyInput] = useState("");
+
+  useEffect(() => {
+    setDataKeys(readStoredDataKeys());
+  }, []);
 
   const saveDataKey = (providerId: string) => {
     if (!keyInput.trim()) return;
@@ -501,18 +505,22 @@ export default function SettingsPage() {
   const { lang, setLang } = useLang();
   const t = translations[lang] || translations.en;
 
-  const [activeProvider, setActiveProvider] = useState(() => {
-    if (typeof window === "undefined") return "ollama";
-    return localStorage.getItem("quantclaw_provider") || "ollama";
-  });
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>(() => readStoredProviderKeys());
+  // Initialize to defaults on both server and client; load saved values in
+  // the effect below to avoid SSR hydration mismatches.
+  const [activeProvider, setActiveProvider] = useState("ollama");
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [keyInput, setKeyInput] = useState("");
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
-  const [selectedModel, setSelectedModel] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return localStorage.getItem("quantclaw_model") || "";
-  });
+  const [selectedModel, setSelectedModel] = useState("");
   const [customModelInput, setCustomModelInput] = useState("");
+
+  useEffect(() => {
+    const provider = localStorage.getItem("quantclaw_provider");
+    if (provider) setActiveProvider(provider);
+    const model = localStorage.getItem("quantclaw_model");
+    if (model) setSelectedModel(model);
+    setApiKeys(readStoredProviderKeys());
+  }, []);
   const [ollamaStatus, setOllamaStatus] = useState<"checking" | "online" | "offline">("checking");
   const [oauthStatus, setOauthStatus] = useState<Record<string, { authenticated: boolean; flow_status?: string }>>({});
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
