@@ -50,19 +50,29 @@ export function useProviderModels(
     const headers: Record<string, string> = {};
     if (apiKey) headers["x-provider-key"] = apiKey;
 
+    // Custom models the user typed in this provider's picker (e.g. gpt-5.5).
+    let customModels: string[] = [];
+    try {
+      customModels = JSON.parse(
+        localStorage.getItem(`quantclaw_custom_models_${providerId}`) || "[]",
+      );
+    } catch {}
+
     const url = `${API}/api/providers/${encodeURIComponent(providerId)}/models${tick > 0 ? "?refresh=true" : ""}`;
     fetch(url, { headers })
       .then((res) => res.json() as Promise<CatalogResponse>)
       .then((data) => {
         if (cancelled) return;
-        const list = data.models?.length ? data.models : fallback;
+        const catalog = data.models?.length ? data.models : fallback;
+        const list = Array.from(new Set([...customModels, ...catalog]));
         setModels(list);
         setSource(data.source);
         _memCache.set(cacheKey, { models: list, source: data.source, ts: Date.now() });
       })
       .catch(() => {
         if (cancelled) return;
-        setModels(fallback);
+        const list = Array.from(new Set([...customModels, ...fallback]));
+        setModels(list);
         setSource("fallback");
       })
       .finally(() => {
@@ -136,16 +146,28 @@ export function useAllAvailableModels(): UseAllAvailableModelsResult {
         const apiKey = localStorage.getItem(`quantclaw_key_${providerId}`) ?? "";
         const headers: Record<string, string> = {};
         if (apiKey) headers["x-provider-key"] = apiKey;
+
+        // Custom models the user typed in the Settings page (e.g. gpt-5.5)
+        // — merged with whatever the catalog returns so they show up everywhere.
+        let customModels: string[] = [];
+        try {
+          customModels = JSON.parse(
+            localStorage.getItem(`quantclaw_custom_models_${providerId}`) || "[]",
+          );
+        } catch {}
+
+        let catalogModels: string[] = [];
         try {
           const res = await fetch(
             `${API}/api/providers/${encodeURIComponent(providerId)}/models`,
             { headers },
           );
           const data = (await res.json()) as CatalogResponse;
-          return (data.models ?? []).map((m) => ({ provider: providerId, model: m }));
-        } catch {
-          return [];
-        }
+          catalogModels = data.models ?? [];
+        } catch {}
+
+        const merged = Array.from(new Set([...customModels, ...catalogModels]));
+        return merged.map((m) => ({ provider: providerId, model: m }));
       }),
     ).then((lists) => {
       if (cancelled) return;

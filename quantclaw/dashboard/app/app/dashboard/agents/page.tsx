@@ -258,7 +258,7 @@ export default function AgentsPage() {
                   <select
                     value={currentModel}
                     onChange={(e) => handleModelChange(agent.name, e.target.value)}
-                    className="w-full bg-keel/50 border border-trace rounded-lg px-3 py-2 text-xs font-mono text-[#8a9ab0] outline-none focus:border-gold/30 transition-colors cursor-pointer appearance-none"
+                    className="w-full bg-keel/50 border border-trace rounded-lg px-3 py-2 text-xs font-mono text-[#d8e0f0] outline-none focus:border-gold/30 transition-colors cursor-pointer appearance-none"
                     style={{
                       backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%234a5a7a' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E")`,
                       backgroundRepeat: "no-repeat",
@@ -267,10 +267,14 @@ export default function AgentsPage() {
                     }}
                   >
                     {currentModel && !allModels.includes(currentModel) && (
-                      <option value={currentModel}>{currentModel} (default)</option>
+                      <option value={currentModel} style={{ backgroundColor: "#0a121f", color: "#e8eef8" }}>
+                        {currentModel} (default)
+                      </option>
                     )}
                     {allModels.map((m) => (
-                      <option key={m} value={m}>{m}</option>
+                      <option key={m} value={m} style={{ backgroundColor: "#0a121f", color: "#e8eef8" }}>
+                        {m}
+                      </option>
                     ))}
                   </select>
                 </div>

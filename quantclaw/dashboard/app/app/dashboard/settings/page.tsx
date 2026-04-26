@@ -569,6 +569,19 @@ export default function SettingsPage() {
   const selectModel = (model: string) => {
     setSelectedModel(model);
     localStorage.setItem("quantclaw_model", model);
+    // Persist custom (non-catalog) models per provider so they show up in
+    // the Agents page dropdown and any other place that lists models.
+    if (activeProvider && !liveModels.includes(model)) {
+      const key = `quantclaw_custom_models_${activeProvider}`;
+      let existing: string[] = [];
+      try {
+        existing = JSON.parse(localStorage.getItem(key) || "[]");
+      } catch {}
+      if (!existing.includes(model)) {
+        existing.push(model);
+        localStorage.setItem(key, JSON.stringify(existing));
+      }
+    }
   };
 
   const startOAuth = async (providerId: string) => {
