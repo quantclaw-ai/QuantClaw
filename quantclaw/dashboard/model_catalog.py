@@ -30,12 +30,15 @@ _FALLBACK_MODELS: dict[str, list[str]] = {
     # users see this fallback list. The custom-model input on the settings page
     # is the escape hatch for newer releases (gpt-5.5, gpt-6, etc.) until they
     # show up here on a future package update.
+    # Codex OAuth users see this fallback (chatgpt.com/backend-api has no
+    # public catalog endpoint). Only Codex-compatible names — gpt-4o is a
+    # Chat Completions model and gets 400'd by the Codex backend, so it
+    # would crash any selection that picked it.
     "openai": [
         "gpt-5.4",
         "gpt-5.4-mini",
         "gpt-5.3-codex",
         "gpt-4.1",
-        "gpt-4o",
     ],
     "anthropic": [
         "claude-opus-4-6",

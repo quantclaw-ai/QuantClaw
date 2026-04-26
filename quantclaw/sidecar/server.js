@@ -55,18 +55,24 @@ function formatProviderError(provider, model, err) {
 
 // ── OpenAI (Codex/subscription via chatgpt.com) ──
 
-// Pass through anything in the OpenAI model namespace (gpt-*, o<digit>,
-// codex-*). The Codex backend rejects unknown names with 400, but blocking
-// future models like "gpt-6" or "o4" client-side would be worse — we'd never
-// be able to use them. Pattern-based gate covers all current and future
-// OpenAI naming schemes without code changes.
-const OPENAI_NAMESPACE_RE = /^(gpt-|o\d|codex)/i;
+// The Codex backend (chatgpt.com/backend-api/codex) only accepts certain
+// OpenAI models — its own gpt-5.x family, gpt-4.1, the o-series reasoning
+// models, and explicit codex-* names. It rejects gpt-4o, gpt-3.5, gpt-4-turbo
+// etc. with 400 (no body). Resolver allows any future Codex-compatible name
+// (gpt-5.5, gpt-6, gpt-10, o4, …) while downgrading non-Codex names to the
+// default so a misconfigured selection doesn't blow up the user's chat.
 const CODEX_DEFAULT_MODEL = "gpt-5.4";
 
 function resolveCodexModel(requested) {
   if (!requested) return CODEX_DEFAULT_MODEL;
-  const name = String(requested);
-  if (OPENAI_NAMESPACE_RE.test(name)) return name;
+  const name = String(requested).toLowerCase();
+  // Explicit codex-* (e.g. gpt-4o-codex, codex-davinci) — always pass.
+  if (/codex/.test(name)) return requested;
+  // o-series reasoning models (o1, o3-mini, o4, …).
+  if (/^o\d/.test(name)) return requested;
+  // gpt-5+ family, two-digit gpt-NN, or gpt-4.1 specifically. Excludes
+  // gpt-4o, gpt-4-turbo, gpt-3.5 by not matching their prefixes.
+  if (/^gpt-(?:[5-9]|\d{2}|4\.1)/.test(name)) return requested;
   return CODEX_DEFAULT_MODEL;
 }
 
