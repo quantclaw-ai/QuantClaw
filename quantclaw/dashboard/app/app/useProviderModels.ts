@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 
+const API = "http://localhost:24120";
+
 interface CatalogResponse {
   models: string[];
   source: "live" | "cache" | "fallback";
@@ -48,7 +50,7 @@ export function useProviderModels(
     const headers: Record<string, string> = {};
     if (apiKey) headers["x-provider-key"] = apiKey;
 
-    const url = `/api/providers/${encodeURIComponent(providerId)}/models${tick > 0 ? "?refresh=true" : ""}`;
+    const url = `${API}/api/providers/${encodeURIComponent(providerId)}/models${tick > 0 ? "?refresh=true" : ""}`;
     fetch(url, { headers })
       .then((res) => res.json() as Promise<CatalogResponse>)
       .then((data) => {
@@ -136,7 +138,7 @@ export function useAllAvailableModels(): UseAllAvailableModelsResult {
         if (apiKey) headers["x-provider-key"] = apiKey;
         try {
           const res = await fetch(
-            `/api/providers/${encodeURIComponent(providerId)}/models`,
+            `${API}/api/providers/${encodeURIComponent(providerId)}/models`,
             { headers },
           );
           const data = (await res.json()) as CatalogResponse;
