@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useLang } from "../../lang-context";
+import { useProviderModels } from "../../useProviderModels";
 
 const API = "http://localhost:24120";
 
@@ -61,6 +62,9 @@ const translations: Record<Lang, Record<string, string>> = {
     dataValue: "Auto-configured from onboarding",
     notifications: "Notifications",
     notifValue: "Not configured",
+    configured: "Configured",
+    notConfigured: "Not configured",
+    notificationsSaved: "Saved locally. Matching events route through configured channels while QuantClaw is running.",
     local: "Local",
     connected: "Connected",
   },
@@ -188,20 +192,33 @@ const dataI18n: Record<string, Record<string, string>> = {
   },
 };
 
-function DataSourcesSection({ lang }: { lang: string }) {
-  const dt = dataI18n[lang] || dataI18n.en;
-  const [dataKeys, setDataKeys] = useState<Record<string, string>>({});
-  const [expanded, setExpanded] = useState<string | null>(null);
-  const [keyInput, setKeyInput] = useState("");
+function readStoredDataKeys(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const keys: Record<string, string> = {};
+  for (const p of API_KEY_SOURCES) {
+    const k = localStorage.getItem(`quantclaw_data_${p.id}`);
+    if (k) keys[p.id] = k;
+  }
+  return keys;
+}
 
-  useEffect(() => {
-    const keys: Record<string, string> = {};
-    for (const p of API_KEY_SOURCES) {
-      const k = localStorage.getItem(`quantclaw_data_${p.id}`);
+function readStoredProviderKeys(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  const keys: Record<string, string> = {};
+  for (const p of PROVIDERS) {
+    if (p.needsKey) {
+      const k = localStorage.getItem(`quantclaw_key_${p.id}`);
       if (k) keys[p.id] = k;
     }
-    setDataKeys(keys);
-  }, []);
+  }
+  return keys;
+}
+
+function DataSourcesSection({ lang }: { lang: string }) {
+  const dt = dataI18n[lang] || dataI18n.en;
+  const [dataKeys, setDataKeys] = useState<Record<string, string>>(() => readStoredDataKeys());
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [keyInput, setKeyInput] = useState("");
 
   const saveDataKey = (providerId: string) => {
     if (!keyInput.trim()) return;
@@ -324,37 +341,176 @@ function DataSourcesSection({ lang }: { lang: string }) {
   );
 }
 
+interface NotificationStatus {
+  channels: Record<string, { configured: boolean; fields: string[] }>;
+  routes: { event: string; channels: string[]; urgency: string }[];
+}
+
+function NotificationsSection({ t }: { t: Record<string, string> }) {
+  const [status, setStatus] = useState<NotificationStatus | null>(null);
+  const [telegramToken, setTelegramToken] = useState("");
+  const [telegramChatId, setTelegramChatId] = useState("");
+  const [discordWebhook, setDiscordWebhook] = useState("");
+  const [slackWebhook, setSlackWebhook] = useState("");
+  const [saved, setSaved] = useState<string | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetch(`${API}/api/settings/notifications`)
+      .then((res) => res.json())
+      .then((data) => setStatus(data))
+      .catch(() => {});
+  }, []);
+
+  const saveChannel = async (channel: "telegram" | "discord" | "slack") => {
+    setError("");
+    const payload: Record<string, Record<string, string>> = {};
+    if (channel === "telegram") {
+      payload.telegram = {};
+      if (telegramToken.trim()) payload.telegram.bot_token = telegramToken.trim();
+      if (telegramChatId.trim()) payload.telegram.chat_id = telegramChatId.trim();
+    } else if (channel === "discord") {
+      payload.discord = {};
+      if (discordWebhook.trim()) payload.discord.webhook_url = discordWebhook.trim();
+    } else {
+      payload.slack = {};
+      if (slackWebhook.trim()) payload.slack.webhook_url = slackWebhook.trim();
+    }
+
+    if (Object.keys(payload[channel]).length === 0) return;
+
+    const res = await fetch(`${API}/api/settings/notifications`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error || data.detail) {
+      setError(data.detail || data.error || "Failed to save notifications");
+      return;
+    }
+
+    setTelegramToken("");
+    setTelegramChatId("");
+    setDiscordWebhook("");
+    setSlackWebhook("");
+    setSaved(channel);
+    setStatus(data);
+    setTimeout(() => setSaved(null), 2000);
+  };
+
+  const clearChannel = async (channel: "telegram" | "discord" | "slack") => {
+    setError("");
+    const payload = channel === "telegram"
+      ? { telegram: { bot_token: "", chat_id: "" } }
+      : channel === "discord"
+        ? { discord: { webhook_url: "" } }
+        : { slack: { webhook_url: "" } };
+    const res = await fetch(`${API}/api/settings/notifications`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok || data.error || data.detail) {
+      setError(data.detail || data.error || "Failed to update notifications");
+      return;
+    }
+    setStatus(data);
+  };
+
+  const channelState = (channel: string) =>
+    status?.channels?.[channel]?.configured
+      ? (t.configured || "Configured")
+      : (t.notConfigured || "Not configured");
+
+  const inputClass = "w-full bg-keel/50 border border-trace rounded-lg px-3 py-2 text-xs font-mono text-[#8a9ab0] outline-none focus:border-gold/30 transition-colors";
+  const buttonClass = "px-3 py-2 rounded-lg bg-gold/10 border border-gold/30 text-gold text-xs font-medium hover:bg-gold/20 transition-all cursor-pointer";
+  const removeClass = "px-3 py-2 rounded-lg bg-keel/50 border border-trace text-muted text-xs hover:border-trace-glow transition-all cursor-pointer";
+
+  return (
+    <div className="card-cyber p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-medium">{t.notifications}</h3>
+        {saved && <span className="text-[10px] text-circuit-light font-mono">{saved} saved</span>}
+      </div>
+      {error && <p className="text-xs text-claw-light mb-3">{error}</p>}
+
+      <div className="grid gap-3">
+        <div className="rounded-lg border border-trace bg-keel/30 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium">Telegram</p>
+            <span className="text-[10px] font-mono text-muted">{channelState("telegram")}</span>
+          </div>
+          <div className="grid gap-2 md:grid-cols-2">
+            <input className={inputClass} type="password" value={telegramToken} onChange={(e) => setTelegramToken(e.target.value)} placeholder="Bot token" />
+            <input className={inputClass} value={telegramChatId} onChange={(e) => setTelegramChatId(e.target.value)} placeholder="Chat ID" />
+          </div>
+          <div className="flex gap-2 mt-2">
+            <button className={buttonClass} onClick={() => saveChannel("telegram")}>{t.save}</button>
+            <button className={removeClass} onClick={() => clearChannel("telegram")}>{t.remove}</button>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-trace bg-keel/30 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium">Discord</p>
+            <span className="text-[10px] font-mono text-muted">{channelState("discord")}</span>
+          </div>
+          <input className={inputClass} type="password" value={discordWebhook} onChange={(e) => setDiscordWebhook(e.target.value)} placeholder="Webhook URL" />
+          <div className="flex gap-2 mt-2">
+            <button className={buttonClass} onClick={() => saveChannel("discord")}>{t.save}</button>
+            <button className={removeClass} onClick={() => clearChannel("discord")}>{t.remove}</button>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-trace bg-keel/30 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-sm font-medium">Slack</p>
+            <span className="text-[10px] font-mono text-muted">{channelState("slack")}</span>
+          </div>
+          <input className={inputClass} type="password" value={slackWebhook} onChange={(e) => setSlackWebhook(e.target.value)} placeholder="Webhook URL" />
+          <div className="flex gap-2 mt-2">
+            <button className={buttonClass} onClick={() => saveChannel("slack")}>{t.save}</button>
+            <button className={removeClass} onClick={() => clearChannel("slack")}>{t.remove}</button>
+          </div>
+        </div>
+      </div>
+
+      <p className="text-[10px] text-[#2a3a5a] mt-3 font-mono">
+        {t.notificationsSaved || "Saved locally. Matching events route through configured channels while QuantClaw is running."}
+      </p>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {(status?.routes || []).map((route) => (
+          <span key={`${route.event}-${route.channels.join(",")}`} className="text-[10px] font-mono px-2 py-0.5 rounded bg-hull/50 text-muted border border-trace/50">
+            {route.event} {"->"} {route.channels.join(", ")}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { lang, setLang } = useLang();
   const t = translations[lang] || translations.en;
 
-  const [activeProvider, setActiveProvider] = useState("ollama");
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  const [activeProvider, setActiveProvider] = useState(() => {
+    if (typeof window === "undefined") return "ollama";
+    return localStorage.getItem("quantclaw_provider") || "ollama";
+  });
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>(() => readStoredProviderKeys());
   const [keyInput, setKeyInput] = useState("");
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
-  const [selectedModel, setSelectedModel] = useState("");
+  const [selectedModel, setSelectedModel] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return localStorage.getItem("quantclaw_model") || "";
+  });
   const [ollamaStatus, setOllamaStatus] = useState<"checking" | "online" | "offline">("checking");
   const [oauthStatus, setOauthStatus] = useState<Record<string, { authenticated: boolean; flow_status?: string }>>({});
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
 
   useEffect(() => {
-    // Load saved provider + keys
-    const savedProvider = localStorage.getItem("quantclaw_provider");
-    if (savedProvider) setActiveProvider(savedProvider);
-
-    const savedModel = localStorage.getItem("quantclaw_model");
-    if (savedModel) setSelectedModel(savedModel);
-
-    // Load all saved API keys
-    const keys: Record<string, string> = {};
-    for (const p of PROVIDERS) {
-      if (p.needsKey) {
-        const k = localStorage.getItem(`quantclaw_key_${p.id}`);
-        if (k) keys[p.id] = k;
-      }
-    }
-    setApiKeys(keys);
-
     // Check OAuth status for pairable providers
     for (const p of PROVIDERS) {
       if (p.pairable) {
@@ -366,6 +522,7 @@ export default function SettingsPage() {
     }
 
     // Check Ollama
+    const savedModel = localStorage.getItem("quantclaw_model");
     fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(3000) })
       .then((r) => r.json())
       .then((data) => {
@@ -458,6 +615,8 @@ export default function SettingsPage() {
   };
 
   const currentProviderConfig = PROVIDERS.find((p) => p.id === activeProvider);
+  const { models: liveModels, loading: modelsLoading, source: modelsSource, refresh: refreshModels } =
+    useProviderModels(activeProvider, currentProviderConfig?.models ?? []);
 
   return (
     <div>
@@ -634,12 +793,29 @@ export default function SettingsPage() {
                 </div>
               )}
 
-              {/* Model selector for cloud providers */}
-              {currentProviderConfig.models && currentProviderConfig.models.length > 0 && (
+              {/* Model selector — fetched live from provider's /v1/models */}
+              {liveModels.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-trace/40">
-                  <p className="text-xs text-muted mb-2">{t.selectedModel}</p>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs text-muted">{t.selectedModel}</p>
+                    <div className="flex items-center gap-2 text-[10px] font-mono text-[#2a3a5a]">
+                      {modelsLoading && <span>loading…</span>}
+                      {!modelsLoading && modelsSource && (
+                        <span className={modelsSource === "live" ? "text-emerald-500/70" : modelsSource === "cache" ? "text-cyan-500/60" : "text-amber-500/60"}>
+                          {modelsSource}
+                        </span>
+                      )}
+                      <button
+                        onClick={refreshModels}
+                        className="text-[#3a4a6a] hover:text-muted transition-colors"
+                        title="Refetch from provider"
+                      >
+                        ↻
+                      </button>
+                    </div>
+                  </div>
                   <div className="flex flex-wrap gap-2">
-                    {currentProviderConfig.models.map((m) => (
+                    {liveModels.map((m) => (
                       <button
                         key={m}
                         onClick={() => selectModel(m)}
@@ -694,10 +870,7 @@ export default function SettingsPage() {
         <DataSourcesSection lang={lang} />
 
         {/* Notifications */}
-        <div className="card-cyber p-4">
-          <h3 className="font-medium mb-2">{t.notifications}</h3>
-          <p className="text-sm text-muted">{t.notifValue}</p>
-        </div>
+        <NotificationsSection t={t} />
       </div>
     </div>
   );

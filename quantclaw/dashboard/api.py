@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import os
 
 # Configure root logger so our logs are visible in uvicorn
 logging.basicConfig(level=logging.INFO, format="%(levelname)s:%(name)s: %(message)s")
@@ -17,15 +18,77 @@ from quantclaw.state.tasks import TaskStore, TaskStatus
 from quantclaw.strategy.loader import list_templates
 from quantclaw.events.bus import EventBus
 from quantclaw.events.types import Event, EventType
+from quantclaw.events.routing import EventRouter
 from quantclaw.plugins.manager import PluginManager
+from quantclaw.notifications.config import CHANNELS, build_notification_sinks, configured_channels
+from quantclaw.notifications.formatter import format_event
 
 logger = logging.getLogger(__name__)
+_LOCAL_CLIENTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 # Shared state
 _db: StateDB | None = None
 _bus = EventBus()
 _pm = PluginManager()
 _config = {}
+_notification_router = EventRouter.from_config({})
+_notification_sinks: dict[str, object] = {}
+
+
+def _load_user_config() -> dict:
+    import yaml
+    path = Path("quantclaw.yaml")
+    if not path.exists():
+        return {}
+    try:
+        return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        logger.exception("Failed to read quantclaw.yaml")
+        return {}
+
+
+def _save_user_config(config: dict) -> None:
+    import yaml
+    path = Path("quantclaw.yaml")
+    tmp = path.with_suffix(".yaml.tmp")
+    tmp.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False), encoding="utf-8")
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
+    tmp.replace(path)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def _rebuild_notification_runtime() -> None:
+    global _notification_router, _notification_sinks
+    _notification_router = EventRouter.from_config(_config)
+    _notification_sinks = build_notification_sinks(_config)
+
+
+def _notification_settings_payload() -> dict:
+    configured = configured_channels(_config)
+    routes = _config.get("notification_routes", [])
+    return {
+        "channels": {
+            "telegram": {
+                "configured": configured["telegram"],
+                "fields": ["bot_token", "chat_id"],
+            },
+            "discord": {
+                "configured": configured["discord"],
+                "fields": ["webhook_url"],
+            },
+            "slack": {
+                "configured": configured["slack"],
+                "fields": ["webhook_url"],
+            },
+        },
+        "routes": routes,
+    }
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -44,6 +107,7 @@ async def lifespan(app: FastAPI):
     _pin_agents_to_llm_provider(_config)
     _db = await StateDB.create("data/quantclaw.db")
     _pm.discover()
+    _rebuild_notification_runtime()
 
     # ── Orchestration setup ──
     from quantclaw.orchestration.playbook import Playbook
@@ -148,6 +212,19 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def require_local_client(request: Request, call_next):
+    """Refuse non-loopback access to the local control API."""
+    client_host = request.client.host if request.client else ""
+    if client_host not in _LOCAL_CLIENTS:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            {"error": "QuantClaw API only accepts local loopback clients"},
+            status_code=403,
+        )
+    return await call_next(request)
+
+
 # ── Health ──
 @app.get("/api/health")
 def health():
@@ -165,14 +242,11 @@ def health():
     )
 
     # Notification sinks status
-    nc = _config.get("notifications", {})
-    sinks = {}
-    for channel in ["telegram", "discord", "slack"]:
-        if channel in nc:
-            conf = nc[channel]
-            # Check if credentials are configured (not still env var placeholders)
-            has_creds = all(not str(v).startswith("$") for v in conf.values())
-            sinks[channel] = "connected" if has_creds else "not_configured"
+    configured = configured_channels(_config)
+    sinks = {
+        channel: "connected" if configured[channel] else "not_configured"
+        for channel in CHANNELS
+    }
 
     # Plugin status
     plugin_counts = {}
@@ -203,6 +277,54 @@ def health():
         "database": "connected" if _db else "disconnected",
         "llm_available": llm_available,
     }
+
+
+# ── Notification Settings ──
+@app.get("/api/settings/notifications")
+def get_notification_settings():
+    """Return redacted notification setup state and route rules."""
+    return _notification_settings_payload()
+
+
+@app.post("/api/settings/notifications")
+def save_notification_settings(body: dict):
+    """Persist local notification credentials to ignored quantclaw.yaml."""
+    global _config
+
+    import re
+    from fastapi import HTTPException
+
+    allowed_fields = {
+        "telegram": ("bot_token", "chat_id"),
+        "discord": ("webhook_url",),
+        "slack": ("webhook_url",),
+    }
+    user_config = _load_user_config()
+    notifications = user_config.setdefault("notifications", {})
+
+    for channel in CHANNELS:
+        incoming = body.get(channel)
+        if incoming is None:
+            continue
+        if not isinstance(incoming, dict):
+            raise HTTPException(status_code=400, detail=f"{channel} config must be an object")
+
+        current = notifications.setdefault(channel, {})
+        for field in allowed_fields[channel]:
+            if field not in incoming:
+                continue
+            value = str(incoming.get(field) or "").strip()
+            if field == "webhook_url" and value and not value.startswith("https://"):
+                raise HTTPException(status_code=400, detail=f"{channel} webhook_url must start with https://")
+            if channel == "telegram" and field == "bot_token" and value and not re.match(r"^\d+:[A-Za-z0-9_-]+$", value):
+                raise HTTPException(status_code=400, detail="telegram bot_token has an unexpected format")
+            current[field] = value
+
+    _save_user_config(user_config)
+    _config = load_config("quantclaw.yaml")
+    _pin_agents_to_llm_provider(_config)
+    _rebuild_notification_runtime()
+    return {"status": "saved", **_notification_settings_payload()}
 
 
 # ── Welcome / Onboarding ──
@@ -462,7 +584,7 @@ async def reset_workings(request: Request) -> dict:
 # ── Strategies ──
 @app.get("/api/strategies/templates")
 def get_templates():
-    return {"available": list_templates(), "locked": []}
+    return {"available": list_templates()}
 
 
 # ── Agents ──
@@ -538,6 +660,21 @@ async def broadcast_event(event: Event):
             logger.exception("WebSocket broadcast failed")
             _ws_clients.remove(ws)
 
+
+async def send_notification_event(event: Event):
+    routes = _notification_router.get_routes(str(event.type))
+    for route in routes:
+        message = format_event(event, urgency=route.urgency)
+        for channel in route.channels:
+            sink = _notification_sinks.get(channel)
+            if not sink:
+                continue
+            try:
+                await sink.send(message)
+            except Exception:
+                logger.exception("Failed to send notification to %s", channel)
+
+
 async def emit_floor_event(event_type: str, agent: str = "", targets: list[str] | None = None, progress: int = 0, message: str = ""):
     """Emit a trading floor event to all WebSocket clients."""
     import json
@@ -559,6 +696,7 @@ async def emit_floor_event(event_type: str, agent: str = "", targets: list[str] 
 
 # Subscribe event bus to broadcast
 _bus.subscribe("*", broadcast_event)
+_bus.subscribe("*", send_notification_event)
 
 
 # ── Events (REST) ──
@@ -981,6 +1119,22 @@ def llm_provider_status(provider: str):
     return {"provider": provider, **status}
 
 
+@app.get("/api/providers/{provider}/models")
+async def list_provider_models(provider: str, request: Request, refresh: bool = False):
+    """Return chat-capable models for a provider, fetched live from its catalog.
+
+    The frontend passes the user's stored API key via x-provider-key header
+    (it lives in localStorage). Cached for 1 hour per (provider, key) pair.
+    """
+    from quantclaw.dashboard.model_catalog import get_models
+
+    provider = provider.lower()
+    api_key = request.headers.get("x-provider-key") or _get_api_key(provider)
+    base_url = PROVIDER_CONFIGS.get(provider, {}).get("base_url")
+    result = await get_models(provider, api_key, base_url=base_url, force_refresh=refresh)
+    return {"provider": provider, **result}
+
+
 @app.post("/api/chat")
 async def chat(body: dict, request: Request):
     """Route a message to the appropriate agent via the selected provider."""
@@ -1049,8 +1203,8 @@ async def chat(body: dict, request: Request):
             user_api_key = api_key_from_client or _get_api_key(provider) or ""
             import logging as _logging
             _logging.getLogger(__name__).info(
-                "OODA: provider=%s, model=%s, api_key=%s",
-                provider, model, f"{user_api_key[:8]}..." if user_api_key else "NONE"
+                "OODA: provider=%s, model=%s, has_api_key=%s",
+                provider, model, bool(user_api_key)
             )
             agent_models = body.get("agent_models", {})
             if agent_models:
@@ -1347,7 +1501,7 @@ async def chat(body: dict, request: Request):
         return {"error": str(e), "agent": agent}
 
 
-def run_dashboard(host: str = "0.0.0.0", port: int = 8000):
+def run_dashboard(host: str = "127.0.0.1", port: int = 24120):
     """Run the dashboard API server."""
     import uvicorn
     uvicorn.run(app, host=host, port=port)

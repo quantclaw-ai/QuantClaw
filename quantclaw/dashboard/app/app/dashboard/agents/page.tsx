@@ -1,6 +1,7 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLang } from "../../lang-context";
+import { useAllAvailableModels } from "../../useProviderModels";
 
 const API = "http://localhost:24120";
 
@@ -44,46 +45,8 @@ const MODEL_RANKING = [
   "qwen3:30b", "qwen3:8b", "qwen3:4b",
 ];
 
-function getAvailableModels(): { provider: string; model: string }[] {
-  const models: { provider: string; model: string }[] = [];
-
-  const ollamaModels = JSON.parse(localStorage.getItem("quantclaw_ollama_models") || "[]");
-  for (const m of ollamaModels) {
-    models.push({ provider: "ollama", model: m });
-  }
-
-  const providers = ["openai", "anthropic"];
-  const providerModels: Record<string, string[]> = {
-    openai: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"],
-    anthropic: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
-  };
-  for (const p of providers) {
-    const hasOAuth = localStorage.getItem(`quantclaw_oauth_${p}`) === "true";
-    const hasKey = !!localStorage.getItem(`quantclaw_key_${p}`);
-    if (hasOAuth || hasKey) {
-      for (const m of providerModels[p] || []) {
-        models.push({ provider: p, model: m });
-      }
-    }
-  }
-
-  const apiKeyProviders: Record<string, string[]> = {
-    google: ["gemini-3.1-pro-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
-    deepseek: ["deepseek-chat", "deepseek-reasoner"],
-    xai: ["grok-4.20-0309-reasoning", "grok-4-1-fast-non-reasoning"],
-    mistral: ["mistral-large-latest", "mistral-small-latest"],
-    groq: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
-  };
-  for (const [p, pModels] of Object.entries(apiKeyProviders)) {
-    if (localStorage.getItem(`quantclaw_key_${p}`)) {
-      for (const m of pModels) {
-        models.push({ provider: p, model: m });
-      }
-    }
-  }
-
-  return models;
-}
+// Available models are now fetched live from each configured provider's
+// /v1/models endpoint via the useAllAvailableModels hook (see useProviderModels.ts).
 
 function autoAssignModels(agents: Agent[], available: { provider: string; model: string }[]): Record<string, string> {
   const assignments: Record<string, string> = {};
@@ -169,8 +132,11 @@ export default function AgentsPage() {
   const { lang } = useLang();
   const t = translations[lang] || translations.en;
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [assignments, setAssignments] = useState<Record<string, string>>({});
-  const [available, setAvailable] = useState<{ provider: string; model: string }[]>([]);
+  const [assignments, setAssignments] = useState<Record<string, string>>(() => {
+    if (typeof window === "undefined") return {};
+    const savedAssignments = localStorage.getItem("quantclaw_agent_models");
+    return savedAssignments ? JSON.parse(savedAssignments) : {};
+  });
   const [saved, setSaved] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
 
@@ -180,10 +146,6 @@ export default function AgentsPage() {
       .then((data) => {
         const agentList = data.agents || [];
         setAgents(agentList);
-        const savedAssignments = localStorage.getItem("quantclaw_agent_models");
-        if (savedAssignments) {
-          setAssignments(JSON.parse(savedAssignments));
-        }
       });
 
     fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(3000) })
@@ -207,19 +169,14 @@ export default function AgentsPage() {
     }
   }, []);
 
-  useEffect(() => {
-    const models = getAvailableModels();
-    setAvailable(models);
-    const savedAssignments = localStorage.getItem("quantclaw_agent_models");
-    if (!savedAssignments && agents.length > 0 && models.length > 0) {
-      const auto = autoAssignModels(agents, models);
-      setAssignments(auto);
-      localStorage.setItem("quantclaw_agent_models", JSON.stringify(auto));
-    }
-  }, [agents, ollamaModels]);
+  const { available } = useAllAvailableModels();
+  const effectiveAssignments = useMemo(
+    () => Object.keys(assignments).length > 0 ? assignments : autoAssignModels(agents, available),
+    [assignments, agents, available],
+  );
 
   const handleModelChange = (agentName: string, model: string) => {
-    const updated = { ...assignments, [agentName]: model };
+    const updated = { ...effectiveAssignments, [agentName]: model };
     setAssignments(updated);
     localStorage.setItem("quantclaw_agent_models", JSON.stringify(updated));
     setSaved(true);
@@ -227,8 +184,7 @@ export default function AgentsPage() {
   };
 
   const handleAutoAssign = () => {
-    const models = getAvailableModels();
-    const auto = autoAssignModels(agents, models);
+    const auto = autoAssignModels(agents, available);
     setAssignments(auto);
     localStorage.setItem("quantclaw_agent_models", JSON.stringify(auto));
     setSaved(true);
@@ -266,7 +222,7 @@ export default function AgentsPage() {
       <div className="space-y-2">
         {agents.map((agent) => {
           const tier = AGENT_TIERS[agent.name] || "medium";
-          const currentModel = assignments[agent.name] || agent.model || "";
+          const currentModel = effectiveAssignments[agent.name] || agent.model || "";
 
           return (
             <div

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLang } from "../../lang-context";
+import { useProviderModels } from "../../useProviderModels";
 import type { FloorAgent } from "./types";
 import { STATIONS, getStationByName, getStationDisplayName } from "./stations";
 
@@ -24,17 +25,18 @@ interface ProviderOption {
   local?: boolean;
 }
 
+// Display labels only — model lists come from useProviderModels at render time.
 const MODEL_PROVIDERS: ProviderOption[] = [
   { id: "ollama", name: "Ollama", models: [], local: true },
-  { id: "openai", name: "OpenAI", models: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"] },
-  { id: "anthropic", name: "Anthropic", models: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-opus-4-5-20251101"] },
-  { id: "google", name: "Google Gemini", models: ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash-image"] },
-  { id: "deepseek", name: "DeepSeek", models: ["deepseek-chat", "deepseek-reasoner"] },
-  { id: "xai", name: "xAI", models: ["grok-4.20-0309-reasoning", "grok-4.20-0309-non-reasoning", "grok-4-1-fast-reasoning", "grok-4-1-fast-non-reasoning"] },
-  { id: "mistral", name: "Mistral", models: ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest", "codestral-2501", "devstral-2-25-12"] },
-  { id: "groq", name: "Groq", models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3-32b"] },
-  { id: "openrouter", name: "OpenRouter", models: ["openai/gpt-5.4", "anthropic/claude-opus-4-6", "anthropic/claude-sonnet-4-6", "google/gemini-3.1-pro-preview", "deepseek/deepseek-chat"] },
-  { id: "together", name: "Together AI", models: ["meta-llama/Llama-3.3-70B-Instruct-Turbo", "deepseek-ai/DeepSeek-V3", "Qwen/Qwen2.5-72B-Instruct-Turbo"] },
+  { id: "openai", name: "OpenAI", models: [] },
+  { id: "anthropic", name: "Anthropic", models: [] },
+  { id: "google", name: "Google Gemini", models: [] },
+  { id: "deepseek", name: "DeepSeek", models: [] },
+  { id: "xai", name: "xAI", models: [] },
+  { id: "mistral", name: "Mistral", models: [] },
+  { id: "groq", name: "Groq", models: [] },
+  { id: "openrouter", name: "OpenRouter", models: [] },
+  { id: "together", name: "Together AI", models: [] },
 ];
 
 const AGENT_COLORS: Record<string, string> = {
@@ -287,14 +289,9 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
   });
   const [selectedModel, setSelectedModel] = useState(() => {
     if (typeof window === "undefined") return "";
-    const savedProvider = localStorage.getItem("quantclaw_provider") || "ollama";
-    const savedModel = localStorage.getItem("quantclaw_model") || "";
-    const providerDef = MODEL_PROVIDERS.find((p) => p.id === savedProvider);
-    const validModels = providerDef?.models || [];
-    if (savedModel && (savedProvider === "ollama" || validModels.includes(savedModel))) {
-      return savedModel;
-    }
-    return validModels[0] || "";
+    // Trust the last saved selection. If it's no longer valid, the live catalog
+    // will populate currentModels and the user can pick again.
+    return localStorage.getItem("quantclaw_model") || "";
   });
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [showModelPicker, setShowModelPicker] = useState(false);
@@ -561,11 +558,13 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
   const switchProvider = (providerId: string) => {
     setActiveProvider(providerId);
     localStorage.setItem("quantclaw_provider", providerId);
-    const p = MODEL_PROVIDERS.find((mp) => mp.id === providerId);
-    const models = providerId === "ollama" ? ollamaModels : (p?.models || []);
-    if (models.length > 0) {
-      setSelectedModel(models[0]);
-      localStorage.setItem("quantclaw_model", models[0]);
+    if (providerId === "ollama" && ollamaModels.length > 0) {
+      setSelectedModel(ollamaModels[0]);
+      localStorage.setItem("quantclaw_model", ollamaModels[0]);
+    } else {
+      // Cloud provider: clear selection — auto-fills when live catalog arrives.
+      setSelectedModel("");
+      localStorage.removeItem("quantclaw_model");
     }
     setShowModelPicker(false);
   };
@@ -621,9 +620,19 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
     }, 0);
   };
 
-  const currentModels = activeProvider === "ollama"
-    ? ollamaModels
-    : (MODEL_PROVIDERS.find((p) => p.id === activeProvider)?.models || []);
+  // Live model catalog for the active provider (cached server-side, refreshes hourly).
+  const { models: liveProviderModels } = useProviderModels(
+    activeProvider === "ollama" ? "" : activeProvider,
+  );
+  const currentModels = activeProvider === "ollama" ? ollamaModels : liveProviderModels;
+
+  // Auto-select first model when catalog loads and nothing is selected yet.
+  useEffect(() => {
+    if (!selectedModel && currentModels.length > 0) {
+      setSelectedModel(currentModels[0]);
+      localStorage.setItem("quantclaw_model", currentModels[0]);
+    }
+  }, [currentModels, selectedModel]);
 
   const enabledAgents = agents.filter((a) => a.enabled);
   const effectiveTargetAgent = selectedAgent || targetAgent;

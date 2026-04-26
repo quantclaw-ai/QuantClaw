@@ -55,20 +55,22 @@ quantclaw status    # Check what's running
 
 ## Model Providers
 
-QuantClaw supports multiple AI providers. Pick one during onboarding or configure later in Settings.
+QuantClaw supports multiple AI providers. Pick one during onboarding or configure later in Settings. **Model lists are fetched live** from each provider's `/v1/models` catalog at runtime — new releases (e.g. `gpt-5.5`) appear automatically without an upgrade.
 
-| Provider | Auth | Models |
-|----------|------|--------|
-| **Ollama** | Local, no key | qwen3, llama, mistral, etc. |
-| **OpenAI** | OAuth (subscription) or API key | gpt-5.4, gpt-5.3-codex |
-| **Anthropic** | OAuth (subscription) or API key | claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5 |
-| **Google Gemini** | Free API key from [aistudio.google.com](https://aistudio.google.com/apikey) | gemini-3.1-pro, gemini-2.5-flash |
-| **DeepSeek** | API key | deepseek-chat, deepseek-reasoner |
-| **xAI** | API key | grok-4.20, grok-4-1-fast |
-| **Mistral** | API key | mistral-large, mistral-small, codestral |
-| **Groq** | API key | llama-3.3-70b, gpt-oss-120b, qwen3-32b |
-| **OpenRouter** | API key | 200+ models from all providers |
-| **Together AI** | API key | Llama, DeepSeek, Qwen open models |
+| Provider | Auth | Catalog source |
+|----------|------|----------------|
+| **Ollama** | Local, no key | `localhost:11434/api/tags` |
+| **OpenAI** | OAuth (subscription) or API key | `api.openai.com/v1/models` |
+| **Anthropic** | OAuth (subscription) or API key | `api.anthropic.com/v1/models` |
+| **Google Gemini** | Free API key from [aistudio.google.com](https://aistudio.google.com/apikey) | `generativelanguage.googleapis.com/v1beta/models` |
+| **DeepSeek** | API key | `api.deepseek.com/v1/models` |
+| **xAI** | API key | `api.x.ai/v1/models` |
+| **Mistral** | API key | `api.mistral.ai/v1/models` |
+| **Groq** | API key | `api.groq.com/openai/v1/models` |
+| **OpenRouter** | API key | `openrouter.ai/api/v1/models` (200+ models) |
+| **Together AI** | API key | `api.together.xyz/v1/models` |
+
+The dashboard caches catalogs for one hour; click the refresh icon on the model picker to force a re-fetch.
 
 **China users:** QuantClaw auto-detects your region and shows Chinese providers (DeepSeek, Qwen, Doubao, GLM, Kimi, ERNIE, Spark, etc.) with Chinese-language UI.
 
