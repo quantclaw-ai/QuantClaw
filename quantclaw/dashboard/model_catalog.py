@@ -177,7 +177,71 @@ async def _fetch_openai_compat(
     return [item.get("id") for item in data if item.get("id")]
 
 
+def _is_openai_oauth_token(token: str | None) -> bool:
+    """OpenAI OAuth tokens are JWTs (eyJ...); standard API keys start with sk-."""
+    if not token:
+        return False
+    return not token.startswith("sk-") and token.startswith("eyJ")
+
+
+def _extract_chatgpt_account_id(token: str) -> str:
+    """Pull chatgpt_account_id from the OAuth JWT payload (matches sidecar logic)."""
+    import base64
+    import json as _json
+    try:
+        parts = token.split(".")
+        if len(parts) < 2:
+            return ""
+        # base64url decode payload, padding-tolerant
+        payload_raw = parts[1] + "=" * (-len(parts[1]) % 4)
+        payload = _json.loads(base64.urlsafe_b64decode(payload_raw))
+        return (
+            payload.get("https://api.openai.com/auth", {}).get("chatgpt_account_id", "")
+        )
+    except Exception:
+        return ""
+
+
+async def _fetch_openai_codex_models(token: str) -> list[str]:
+    """Fetch the model list from chatgpt.com/backend-api — what the Codex/ChatGPT
+    app uses to discover models available to a subscription account. Includes
+    new releases like gpt-5.5 the moment OpenAI rolls them out per-account."""
+    account_id = _extract_chatgpt_account_id(token)
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "originator": "quantclaw",
+        "OpenAI-Beta": "responses=experimental",
+    }
+    if account_id:
+        headers["chatgpt-account-id"] = account_id
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.get(
+            "https://chatgpt.com/backend-api/models", headers=headers
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+
+    # chatgpt.com returns one of two shapes: {"models": [...]} or
+    # {"categories": [{"category_models": [...]}, ...]}. Handle both.
+    out: list[str] = []
+    for m in payload.get("models", []):
+        slug = m.get("slug") or m.get("id")
+        if slug:
+            out.append(slug)
+    for cat in payload.get("categories", []):
+        for m in cat.get("category_models", []) or cat.get("models", []):
+            slug = m.get("slug") or m.get("id")
+            if slug:
+                out.append(slug)
+    return out
+
+
 async def _fetch_openai(api_key: str | None, base_url: str | None) -> list[str]:
+    # Route OAuth tokens to chatgpt.com/backend-api (where Codex models live);
+    # standard sk- keys go to api.openai.com/v1/models.
+    if _is_openai_oauth_token(api_key):
+        return await _fetch_openai_codex_models(api_key)
     return await _fetch_openai_compat(
         api_key, base_url or "https://api.openai.com/v1"
     )
