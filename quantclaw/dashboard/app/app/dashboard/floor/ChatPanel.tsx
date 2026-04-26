@@ -155,8 +155,13 @@ const chatI18n: Record<Lang, {
   },
 };
 
+// Locale-independent HH:MM so SSR and client produce identical strings.
+// toLocaleTimeString varies between Node (often 24h) and browser (locale-
+// dependent, often 12h with AM/PM) and was crashing hydration.
 function formatTime(date: Date): string {
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const h = String(date.getHours()).padStart(2, "0");
+  const m = String(date.getMinutes()).padStart(2, "0");
+  return `${h}:${m}`;
 }
 
 function AgentBadge({ name }: { name: string }) {
@@ -264,19 +269,23 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
   const { lang } = useLang();
   const t = chatI18n[lang as Lang] || chatI18n.en;
 
-  const [messages, setMessages] = useState<Message[]>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem("quantclaw_chat_history");
-        if (saved) {
-          const parsed = JSON.parse(saved) as Message[];
-          return parsed.map((m) => ({ ...m, timestamp: new Date(m.timestamp) }));
-        }
-      } catch { /* ignore corrupt data */ }
-      return createBootstrapMessages(t);
-    }
-    return createBootstrapMessages(t);
-  });
+  // Empty on first render (server + initial client) so SSR and hydration match;
+  // saved history / bootstrap messages load in the effect below. Avoids
+  // hydration mismatches from new Date() and locale-dependent formatting.
+  const [messages, setMessages] = useState<Message[]>([]);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("quantclaw_chat_history");
+      if (saved) {
+        const parsed = JSON.parse(saved) as Message[];
+        setMessages(parsed.map((m) => ({ ...m, timestamp: new Date(m.timestamp) })));
+        return;
+      }
+    } catch { /* ignore corrupt data */ }
+    setMessages(createBootstrapMessages(t));
+    // t is stable per language; reloading it would reset the chat which we don't want
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isOrchestrating, setIsOrchestrating] = useState(false);
