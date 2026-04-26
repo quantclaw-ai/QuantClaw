@@ -71,34 +71,29 @@ _FALLBACK_MODELS: dict[str, list[str]] = {
     "ollama": [],  # Ollama lives locally; empty list if daemon isn't running
 }
 
-# Substrings that indicate a model is NOT a chat model (embeddings, audio, image, etc.)
-# Filtering these out keeps the dropdown focused on what QuantClaw actually uses.
-_NON_CHAT_SUBSTRINGS = (
-    "embedding",
-    "embed",
-    "whisper",
-    "tts",
-    "dall-e",
-    "dalle",
-    "audio",
-    "speech",
-    "moderation",
-    "guardrails",
-    "imagegen",
-    "image-gen",
-    "rerank",
-    "code-search",
-    "babbage",
-    "ada",
-    "davinci-002",
-    "text-",  # legacy text-* completion models (not chat)
-)
+# Patterns that mark a model as NOT chat-capable. Kept narrow on purpose: a
+# future chat model with a name we didn't anticipate must NOT be filtered out.
+# Each pattern targets a known non-chat product family, not a generic substring.
+import re as _re
+
+_NON_CHAT_REGEXES = [
+    _re.compile(r"embedding", _re.I),         # text-embedding-*, embedding-*
+    _re.compile(r"\bembed[-_]", _re.I),       # embed-v3, etc.
+    _re.compile(r"\bwhisper", _re.I),         # whisper-1, whisper-large
+    _re.compile(r"(?:^|[-/])tts(?:-|$)", _re.I),  # tts-1, gpt-4o-mini-tts
+    _re.compile(r"transcribe", _re.I),        # gpt-4o-mini-transcribe
+    _re.compile(r"dall-?e", _re.I),           # dall-e-2, dalle-3
+    _re.compile(r"image[-_]?(?:1|gen)", _re.I),  # gpt-image-1, imagegen
+    _re.compile(r"moderation", _re.I),        # text-moderation-*, omni-moderation-*
+    _re.compile(r"\brerank", _re.I),          # cohere rerank
+    _re.compile(r"\b(?:babbage|ada|davinci)-\d", _re.I),  # legacy completion
+]
 
 
 def _is_chat_model(model_id: str) -> bool:
-    """Heuristic: is this a chat-capable model?"""
-    lower = model_id.lower()
-    return not any(sub in lower for sub in _NON_CHAT_SUBSTRINGS)
+    """Conservative filter: only exclude models that match a known non-chat
+    pattern. Anything else (including unrecognized future names) passes."""
+    return not any(rx.search(model_id) for rx in _NON_CHAT_REGEXES)
 
 
 def _key_fingerprint(api_key: str | None) -> str:

@@ -10,6 +10,7 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 
 const PORT = 24122;
+const HOST = "127.0.0.1";
 
 // ── Load OAuth credentials ──
 
@@ -54,17 +55,18 @@ function formatProviderError(provider, model, err) {
 
 // ── OpenAI (Codex/subscription via chatgpt.com) ──
 
-// Models the Codex backend accepts. Standard OpenAI ids like "gpt-4o" are
-// NOT valid here — the Codex endpoint speaks its own model namespace and
-// returns 400 with an empty body when given an unknown name. So we map any
-// non-Codex request down to a sensible default.
-const CODEX_MODEL_PREFIXES = ["gpt-5", "gpt-4.1", "gpt-4o-codex", "o1", "o3", "codex"];
+// Pass through anything in the OpenAI model namespace (gpt-*, o<digit>,
+// codex-*). The Codex backend rejects unknown names with 400, but blocking
+// future models like "gpt-6" or "o4" client-side would be worse — we'd never
+// be able to use them. Pattern-based gate covers all current and future
+// OpenAI naming schemes without code changes.
+const OPENAI_NAMESPACE_RE = /^(gpt-|o\d|codex)/i;
 const CODEX_DEFAULT_MODEL = "gpt-5.4";
 
 function resolveCodexModel(requested) {
   if (!requested) return CODEX_DEFAULT_MODEL;
-  const lower = String(requested).toLowerCase();
-  if (CODEX_MODEL_PREFIXES.some((p) => lower.startsWith(p))) return requested;
+  const name = String(requested);
+  if (OPENAI_NAMESPACE_RE.test(name)) return name;
   return CODEX_DEFAULT_MODEL;
 }
 
@@ -302,6 +304,6 @@ app.get("/health", (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`QuantClaw sidecar running on http://localhost:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`QuantClaw sidecar running on http://${HOST}:${PORT}`);
 });
