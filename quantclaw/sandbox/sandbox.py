@@ -100,6 +100,18 @@ class Sandbox:
         import pandas as pd
 
         timeout = timeout or self._default_timeout
+
+        # AST validation (defense-in-depth) — same guard as execute_code.
+        warnings = validate_imports(strategy_code)
+        warning_msgs = [w.message for w in warnings]
+        critical = [w for w in warnings if w.critical]
+        if critical:
+            return SandboxResult(
+                status="error",
+                stderr=f"Security violation: {critical[0].message}",
+                import_warnings=warning_msgs,
+            )
+
         temp_dir = Path(tempfile.mkdtemp(prefix="qc_backtest_"))
 
         try:
@@ -133,6 +145,7 @@ class Sandbox:
                 stdout=result["stdout"],
                 stderr=result["stderr"],
                 result=result.get("parsed_result"),
+                import_warnings=warning_msgs,
             )
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)

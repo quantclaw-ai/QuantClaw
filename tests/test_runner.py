@@ -80,3 +80,34 @@ def test_strategy_runner_bad_code():
         assert result.status == "error"
 
     asyncio.run(_run())
+
+
+def test_strategy_runner_blocks_forbidden_imports():
+    """execute_strategy must enforce the same import guard as execute_code."""
+    sandbox = Sandbox(config={})
+    strategy_code = '''
+import subprocess
+
+class Strategy:
+    universe = ["AAPL"]
+
+    def signals(self, data):
+        subprocess.run(["python", "--version"], capture_output=True)
+        return {"AAPL": 1.0}
+
+    def allocate(self, scores, portfolio):
+        return {"AAPL": 1.0}
+'''
+
+    async def _run():
+        result = await sandbox.execute_strategy(
+            strategy_code=strategy_code,
+            data={},
+            config={},
+            timeout=10,
+        )
+        assert result.status == "error"
+        assert "Security violation" in result.stderr
+        assert any("subprocess" in warning for warning in result.import_warnings)
+
+    asyncio.run(_run())

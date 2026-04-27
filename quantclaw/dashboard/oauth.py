@@ -6,7 +6,6 @@ import base64
 import os
 import secrets
 import json
-import webbrowser
 from pathlib import Path
 from urllib.parse import urlencode, parse_qs, urlparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -163,11 +162,14 @@ def start_oauth_flow(provider_id: str) -> dict:
     thread = Thread(target=run_callback_server, daemon=True)
     thread.start()
 
-    # Open browser
-    webbrowser.open(auth_url)
-
+    # NOTE: we DO NOT call webbrowser.open() here. On Windows it shells out
+    # to ShellExecuteW, which can block the HTTP response for minutes (cold
+    # browser starts, profile sync, corporate AV scanning). The dashboard
+    # frontend opens ``auth_url`` itself via ``window.open`` as soon as
+    # this response arrives — far faster and more reliable than the
+    # Python-side launcher.
     return {
-        "status": "browser_opened",
+        "status": "ready",
         "provider": provider_id,
         "auth_url": auth_url,
     }
