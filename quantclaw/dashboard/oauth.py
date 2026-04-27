@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import base64
+import logging
 import os
 import secrets
 import json
@@ -14,6 +15,20 @@ from typing import Optional
 import time
 
 import httpx
+
+logger = logging.getLogger(__name__)
+
+
+class _ReusableHTTPServer(HTTPServer):
+    """HTTPServer that re-binds cleanly after a previous flow exits.
+
+    Without ``allow_reuse_address`` the port can sit in TIME_WAIT for a
+    minute or two on Windows after the previous flow's socket closes,
+    which silently broke retries (new bind raised OSError in the daemon
+    thread, frontend polled forever).
+    """
+
+    allow_reuse_address = True
 
 CREDENTIALS_PATH = Path("data/oauth_credentials.json")
 
@@ -77,6 +92,14 @@ PROVIDERS = {
 
 # Global state for in-progress auth
 _auth_state: dict[str, dict] = {}
+# Active callback servers, keyed by provider — kept so we can shut down a
+# stale flow before starting a new one (otherwise the new bind hits an
+# already-listening socket and fails).
+_active_servers: dict[str, HTTPServer] = {}
+# Thread refs, keyed by provider — needed so we can ``join`` after popping
+# the server, ensuring the listening socket is fully closed before the new
+# flow tries to bind to the same port.
+_active_threads: dict[str, Thread] = {}
 
 
 class _OAuthCallbackHandler(BaseHTTPRequestHandler):
@@ -119,10 +142,38 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
         pass  # Suppress server logs
 
 
+def _stop_callback_server(provider_id: str) -> None:
+    """Stop the running callback server and wait for its socket to close.
+
+    The serving thread polls ``_active_servers`` between short
+    ``handle_request`` waits; popping the entry causes it to exit and
+    close the socket itself on the next tick (≤1s). We then ``join`` the
+    thread so the new flow's bind doesn't race against the old socket
+    teardown — without this, retries on the same port hit EADDRINUSE on
+    Windows even with SO_REUSEADDR set.
+    """
+    _active_servers.pop(provider_id, None)
+    thread = _active_threads.pop(provider_id, None)
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=3.0)
+
+
 def start_oauth_flow(provider_id: str) -> dict:
-    """Start OAuth flow: generate PKCE, open browser, start callback server."""
+    """Start OAuth flow: generate PKCE, start callback server, return auth URL.
+
+    The dashboard frontend opens the URL in a new tab via ``window.open``
+    once it receives this response. We do NOT call ``webbrowser.open``
+    here — on Windows that shells out to ShellExecuteW and can block the
+    HTTP response for minutes (cold browser starts, profile sync, AV).
+    """
     if provider_id not in PROVIDERS:
         return {"error": f"Unknown provider: {provider_id}"}
+
+    # If a previous flow for the same provider is still listening, close it
+    # so the new server can bind to the same port. Without this, a retry
+    # (or a stale flow from a crashed/canceled previous attempt) would hit
+    # OSError and the user would be stuck on "Waiting for authorization…".
+    _stop_callback_server(provider_id)
 
     config = PROVIDERS[provider_id]
 
@@ -144,35 +195,80 @@ def start_oauth_flow(provider_id: str) -> dict:
     }
     auth_url = f"{config['authorize_url']}?{urlencode(params)}"
 
-    # Set up callback state
+    # Try to bind synchronously so a port-in-use failure surfaces in the
+    # HTTP response instead of dying silently in the background thread.
+    handler = type(
+        f"Handler_{provider_id}",
+        (_OAuthCallbackHandler,),
+        {"provider_id": provider_id, "code_verifier": code_verifier},
+    )
+    try:
+        server = _ReusableHTTPServer(("127.0.0.1", config["callback_port"]), handler)
+    except OSError as e:
+        msg = (
+            f"Could not bind OAuth callback server on port "
+            f"{config['callback_port']}: {e}. Another process (a previous "
+            f"QuantClaw run, Codex CLI, or Claude CLI) may be holding the "
+            f"port — close it and try again."
+        )
+        logger.error(msg)
+        _auth_state[provider_id] = {"status": "error", "error": msg}
+        return {"error": msg}
+
+    _active_servers[provider_id] = server
     _auth_state[provider_id] = {"status": "waiting", "state": state}
 
-    # Start callback server in background thread
+    # Serve in background until either a callback arrives, the flow is
+    # canceled, or the 5-min timeout elapses. ``serve_forever`` lets us
+    # absorb stray requests (favicon, health-checks) without exiting.
     def run_callback_server():
-        handler = type(
-            f"Handler_{provider_id}",
-            (_OAuthCallbackHandler,),
-            {"provider_id": provider_id, "code_verifier": code_verifier},
-        )
-        server = HTTPServer(("127.0.0.1", config["callback_port"]), handler)
-        server.timeout = 300  # 5 minute timeout
-        server.handle_request()  # Handle single request then stop
-        server.server_close()
+        deadline = time.time() + 300
+        try:
+            server.timeout = 1
+            while time.time() < deadline:
+                if _active_servers.get(provider_id) is not server:
+                    break  # we were superseded or canceled
+                state_now = _auth_state.get(provider_id, {}).get("status")
+                if state_now in ("code_received", "completed", "error"):
+                    break
+                server.handle_request()
+        except Exception as exc:
+            logger.exception("OAuth callback server crashed for %s", provider_id)
+            _auth_state[provider_id] = {"status": "error", "error": str(exc)}
+        finally:
+            try:
+                server.server_close()
+            except Exception:
+                pass
+            # Only clear if this is still the current server (avoid wiping a
+            # newer flow that already replaced us).
+            if _active_servers.get(provider_id) is server:
+                _active_servers.pop(provider_id, None)
+                # If we exited without receiving a code, mark as timed out
+                # so the frontend stops spinning.
+                if _auth_state.get(provider_id, {}).get("status") == "waiting":
+                    _auth_state[provider_id] = {
+                        "status": "error",
+                        "error": "Authorization timed out — no callback received within 5 minutes.",
+                    }
 
     thread = Thread(target=run_callback_server, daemon=True)
+    _active_threads[provider_id] = thread
     thread.start()
 
-    # NOTE: we DO NOT call webbrowser.open() here. On Windows it shells out
-    # to ShellExecuteW, which can block the HTTP response for minutes (cold
-    # browser starts, profile sync, corporate AV scanning). The dashboard
-    # frontend opens ``auth_url`` itself via ``window.open`` as soon as
-    # this response arrives — far faster and more reliable than the
-    # Python-side launcher.
     return {
         "status": "ready",
         "provider": provider_id,
         "auth_url": auth_url,
     }
+
+
+def cancel_oauth_flow(provider_id: str) -> dict:
+    """Cancel an in-flight OAuth flow and free the callback port."""
+    _stop_callback_server(provider_id)
+    if _auth_state.get(provider_id, {}).get("status") == "waiting":
+        _auth_state[provider_id] = {"status": "canceled"}
+    return {"status": "canceled", "provider": provider_id}
 
 
 async def exchange_token(provider_id: str) -> dict:
@@ -338,6 +434,7 @@ def get_auth_status(provider_id: str) -> dict:
         return {
             "authenticated": False,
             "flow_status": flow_state.get("status", "none"),
+            "error": flow_state.get("error"),
         }
 
     expired = provider_creds.get("expires_at", 0) < time.time()

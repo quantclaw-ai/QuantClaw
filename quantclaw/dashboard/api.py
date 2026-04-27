@@ -877,11 +877,17 @@ def get_risk():
 from quantclaw.dashboard.oauth import (
     start_oauth_flow, exchange_token, get_auth_status,
     disconnect_provider, get_access_token, refresh_token as refresh_oauth_token,
+    cancel_oauth_flow,
 )
 
 @app.post("/api/oauth/start/{provider_id}")
-def oauth_start(provider_id: str):
-    """Start OAuth flow — opens browser for authentication."""
+async def oauth_start(provider_id: str):
+    """Start OAuth flow.
+
+    Returns immediately with ``auth_url``; the dashboard frontend opens
+    it via ``window.open``. Async so this endpoint never queues behind
+    the sync threadpool while the callback server is being bound.
+    """
     return start_oauth_flow(provider_id)
 
 @app.get("/api/oauth/status/{provider_id}")
@@ -898,6 +904,11 @@ async def oauth_exchange(provider_id: str):
 def oauth_disconnect(provider_id: str):
     """Remove stored OAuth credentials."""
     return disconnect_provider(provider_id)
+
+@app.post("/api/oauth/cancel/{provider_id}")
+def oauth_cancel(provider_id: str):
+    """Cancel an in-flight OAuth flow and free the callback port."""
+    return cancel_oauth_flow(provider_id)
 
 
 # ── Orchestration ──

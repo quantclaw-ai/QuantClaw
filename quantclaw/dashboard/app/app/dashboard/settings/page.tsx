@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLang } from "../../lang-context";
 import { useProviderModels } from "../../useProviderModels";
 
@@ -525,6 +525,8 @@ export default function SettingsPage() {
   const [oauthStatus, setOauthStatus] = useState<Record<string, { authenticated: boolean; flow_status?: string }>>({});
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
   const [oauthAuthUrl, setOauthAuthUrl] = useState<Record<string, string>>({});
+  const [oauthError, setOauthError] = useState<Record<string, string>>({});
+  const oauthPollRef = useRef<Record<string, ReturnType<typeof setInterval> | undefined>>({});
 
   useEffect(() => {
     // Check OAuth status for pairable providers
@@ -593,58 +595,88 @@ export default function SettingsPage() {
     }
   };
 
+  const stopOauthPoll = (providerId: string) => {
+    const handle = oauthPollRef.current[providerId];
+    if (handle !== undefined) {
+      clearInterval(handle);
+      oauthPollRef.current[providerId] = undefined;
+    }
+  };
+
   const startOAuth = async (providerId: string) => {
+    // Cancel any in-flight flow for this provider before starting a new
+    // one — otherwise the previous callback server keeps the port bound
+    // and the new bind silently fails.
+    stopOauthPoll(providerId);
+    try { await fetch(`${API}/api/oauth/cancel/${providerId}`, { method: "POST" }); } catch {}
+
     setOauthLoading(providerId);
     setOauthAuthUrl((prev) => ({ ...prev, [providerId]: "" }));
+    setOauthError((prev) => ({ ...prev, [providerId]: "" }));
     try {
-      // Start the OAuth flow (backend spawns localhost callback listener and
-      // tries to open the system browser via webbrowser.open). webbrowser.open
-      // can fail silently on some setups, so we also open it from the frontend
-      // and surface the URL as a manual fallback link.
+      // Backend starts the callback server and returns auth_url immediately.
+      // We open it from here (much faster than the Python launcher and no
+      // ShellExecuteW hangs on Windows). The URL is also shown as a clickable
+      // link in case window.open is blocked by a popup blocker.
       const startRes = await fetch(`${API}/api/oauth/start/${providerId}`, { method: "POST" });
       const startData = await startRes.json();
-      if (startData.auth_url) {
-        setOauthAuthUrl((prev) => ({ ...prev, [providerId]: startData.auth_url }));
-        try { window.open(startData.auth_url, "_blank", "noopener,noreferrer"); } catch {}
+
+      if (!startData.auth_url) {
+        const msg = startData.error || startData.detail || "Failed to start OAuth — is the backend running?";
+        setOauthError((prev) => ({ ...prev, [providerId]: msg }));
+        setOauthLoading(null);
+        return;
       }
 
-      // Poll for completion
+      setOauthAuthUrl((prev) => ({ ...prev, [providerId]: startData.auth_url }));
+      try { window.open(startData.auth_url, "_blank", "noopener,noreferrer"); } catch { /* blocked — user can click the link */ }
+
+      // Poll for callback completion
       const poll = setInterval(async () => {
         try {
           const statusRes = await fetch(`${API}/api/oauth/status/${providerId}`);
           const status = await statusRes.json();
-
           if (status.flow_status === "code_received") {
-            // Exchange the code for a token
             const exchangeRes = await fetch(`${API}/api/oauth/exchange/${providerId}`, { method: "POST" });
             const result = await exchangeRes.json();
-
             if (result.status === "authenticated") {
               setOauthStatus((prev) => ({ ...prev, [providerId]: { authenticated: true } }));
               setOauthLoading(null);
-              clearInterval(poll);
+              stopOauthPoll(providerId);
+            } else if (result.error) {
+              setOauthError((prev) => ({ ...prev, [providerId]: result.error }));
+              setOauthLoading(null);
+              stopOauthPoll(providerId);
             }
           } else if (status.authenticated) {
             setOauthStatus((prev) => ({ ...prev, [providerId]: { authenticated: true } }));
             setOauthLoading(null);
-            clearInterval(poll);
+            stopOauthPoll(providerId);
           } else if (status.flow_status === "error") {
+            setOauthError((prev) => ({ ...prev, [providerId]: status.error || "Authorization failed" }));
             setOauthLoading(null);
-            clearInterval(poll);
+            stopOauthPoll(providerId);
           }
-        } catch {
-          // Keep polling
-        }
+        } catch { /* keep polling */ }
       }, 2000);
-
-      // Stop polling after 5 minutes
+      oauthPollRef.current[providerId] = poll;
       setTimeout(() => {
-        clearInterval(poll);
-        setOauthLoading(null);
+        if (oauthPollRef.current[providerId] === poll) {
+          stopOauthPoll(providerId);
+          setOauthLoading((cur) => (cur === providerId ? null : cur));
+        }
       }, 300000);
     } catch {
+      setOauthError((prev) => ({ ...prev, [providerId]: "Network error — is the backend running on port 24120?" }));
       setOauthLoading(null);
     }
+  };
+
+  const cancelOAuth = async (providerId: string) => {
+    stopOauthPoll(providerId);
+    setOauthLoading(null);
+    setOauthAuthUrl((prev) => ({ ...prev, [providerId]: "" }));
+    try { await fetch(`${API}/api/oauth/cancel/${providerId}`, { method: "POST" }); } catch {}
   };
 
   const disconnectOAuth = async (providerId: string) => {
@@ -804,7 +836,7 @@ export default function SettingsPage() {
                               </a>
                             ) : <span />}
                             <button
-                              onClick={() => setOauthLoading(null)}
+                              onClick={() => cancelOAuth(activeProvider)}
                               className="text-[#5a6e8c] hover:text-claw transition-colors cursor-pointer"
                             >
                               {({ en: "cancel", zh: "取消", ja: "キャンセル" } as Record<string, string>)[lang] || "cancel"}
@@ -812,13 +844,20 @@ export default function SettingsPage() {
                           </div>
                         </div>
                       ) : (
-                        <button
-                          onClick={() => startOAuth(activeProvider)}
-                          className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gold/30 bg-gold/5 text-gold text-sm font-medium hover:bg-gold/10 transition-all cursor-pointer"
-                        >
-                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 2L10 2C11.1 2 12 2.9 12 4V5M4 7H12M4 10H9M3 5H13C13.5523 5 14 5.44772 14 6V13C14 13.5523 13.5523 14 13 14H3C2.44772 14 2 13.5523 2 13V6C2 5.44772 2.44772 5 3 5Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
-                          {t.pairWithBrowser}
-                        </button>
+                        <>
+                          {oauthError[activeProvider] && (
+                            <p className="text-xs text-claw-light font-mono px-1 py-1 bg-claw/5 border border-claw/20 rounded-lg">
+                              {oauthError[activeProvider]}
+                            </p>
+                          )}
+                          <button
+                            onClick={() => startOAuth(activeProvider)}
+                            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gold/30 bg-gold/5 text-gold text-sm font-medium hover:bg-gold/10 transition-all cursor-pointer"
+                          >
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6 2L10 2C11.1 2 12 2.9 12 4V5M4 7H12M4 10H9M3 5H13C13.5523 5 14 5.44772 14 6V13C14 13.5523 13.5523 14 13 14H3C2.44772 14 2 13.5523 2 13V6C2 5.44772 2.44772 5 3 5Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>
+                            {t.pairWithBrowser}
+                          </button>
+                        </>
                       )}
                       <div className="flex items-center gap-3">
                         <div className="flex-1 h-px bg-trace" />
