@@ -4,7 +4,7 @@
 class Strategy:
     name = "Simple Momentum"
     description = "Buy the top N stocks ranked by 20-day price momentum."
-    difficulty = "beginner"
+    style = "classic"
     universe = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "JPM", "V", "UNH"]
     frequency = "weekly"
     top_n = 3

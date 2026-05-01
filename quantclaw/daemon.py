@@ -4,15 +4,14 @@ import asyncio
 import logging
 import signal
 from datetime import datetime
+from pathlib import Path
 from croniter import croniter
 from quantclaw.config.loader import load_config
 from quantclaw.events.bus import EventBus
 from quantclaw.events.types import Event, EventType
 from quantclaw.events.routing import EventRouter
 from quantclaw.notifications.formatter import format_event
-from quantclaw.notifications.telegram import TelegramSink
-from quantclaw.notifications.discord import DiscordSink
-from quantclaw.notifications.slack import SlackSink
+from quantclaw.notifications.config import build_notification_sinks
 from quantclaw.execution.pool import AgentPool
 from quantclaw.execution.dispatcher import Dispatcher
 from quantclaw.execution.router import LLMRouter
@@ -30,7 +29,7 @@ logger = logging.getLogger(__name__)
 class QuantClawDaemon:
     def __init__(self):
         self._running = False
-        self._config = load_config()
+        self._config = load_config("quantclaw.yaml" if Path("quantclaw.yaml").exists() else None)
         self._bus = EventBus()
         self._router = LLMRouter(self._config)
         self._pool = AgentPool(bus=self._bus, config=self._config)
@@ -46,13 +45,7 @@ class QuantClawDaemon:
         self._task_store = None
 
     async def _init_sinks(self):
-        nc = self._config.get("notifications", {})
-        if "telegram" in nc and not nc["telegram"].get("bot_token", "").startswith("$"):
-            self._sinks["telegram"] = TelegramSink(nc["telegram"]["bot_token"], nc["telegram"]["chat_id"])
-        if "discord" in nc and not nc["discord"].get("webhook_url", "").startswith("$"):
-            self._sinks["discord"] = DiscordSink(nc["discord"]["webhook_url"])
-        if "slack" in nc and not nc["slack"].get("webhook_url", "").startswith("$"):
-            self._sinks["slack"] = SlackSink(nc["slack"]["webhook_url"])
+        self._sinks = build_notification_sinks(self._config)
 
     async def _notification_handler(self, event: Event):
         routes = self._event_router.get_routes(str(event.type))
@@ -120,7 +113,7 @@ class QuantClawDaemon:
 
         self._bus.subscribe("*", self._notification_handler)
 
-        # Restore trust level from playbook
+        # Restore execution trust state from playbook
         self._trust = await TrustManager.from_playbook(
             self._playbook, bus=self._bus
         )
@@ -141,7 +134,7 @@ class QuantClawDaemon:
         print(f"  Schedules: {len(self._config.get('schedules', {}))}")
         print(f"  Notification sinks: {list(self._sinks.keys())}")
         print(f"  OODA interval: {self._config.get('ooda_interval', 30)}s")
-        print(f"  Trust level: {self._trust.level.name}")
+        print(f"  Execution trust state: {self._trust.level.name}")
 
         await self._scheduler_loop()
 

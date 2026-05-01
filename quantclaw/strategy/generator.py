@@ -74,13 +74,39 @@ class StrategyGenerator:
 
         # Save if path provided
         if save_path:
-            path = Path(save_path)
+            path = self._resolve_save_path(save_path)
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(code)
+            path.write_text(code, encoding="utf-8")
 
         return code
+
+    @staticmethod
+    def _resolve_save_path(save_path: str) -> Path:
+        """Constrain generated strategies to data/strategies."""
+        base = Path("data/strategies").resolve()
+        candidate = Path(save_path)
+
+        if candidate.is_absolute():
+            resolved = candidate.resolve()
+        else:
+            from_cwd = (Path.cwd() / candidate).resolve()
+            resolved = from_cwd if _is_relative_to(from_cwd, base) else (base / candidate).resolve()
+
+        if not _is_relative_to(resolved, base):
+            raise ValueError("save_path must stay inside data/strategies")
+        if resolved.suffix != ".py":
+            raise ValueError("save_path must end with .py")
+        return resolved
 
     def generate_sync(self, description: str, save_path: str = None) -> str:
         """Synchronous wrapper for generate."""
         import asyncio
         return asyncio.run(self.generate(description, save_path))
+
+
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False

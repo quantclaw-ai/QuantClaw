@@ -1,10 +1,10 @@
-"use client";
+﻿"use client";
 import { useState } from "react";
 import { useLang } from "../../lang-context";
 
 interface TopicTranslation {
   title: string;
-  level: string;
+  category: string;
   description: string;
   content?: {
     sections: Array<{
@@ -19,7 +19,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
   stock: {
     en: {
       title: "What is a Stock?",
-      level: "Observer",
+      category: "Market Basics",
       description: "Understanding equities, shares, and market basics",
       content: {
         sections: [
@@ -46,7 +46,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     zh: {
       title: "什么是股票？",
-      level: "观察者",
+      category: "市场基础",
       description: "了解股权、股份和市场基础知识",
       content: {
         sections: [
@@ -73,7 +73,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     ja: {
       title: "株式とは？",
-      level: "オブザーバー",
+      category: "市場基礎",
       description: "株式、シェア、市場の基礎を理解する",
       content: {
         sections: [
@@ -102,7 +102,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
   backtesting: {
     en: {
       title: "What is Backtesting?",
-      level: "Paper Trader",
+      category: "Backtesting",
       description: "Testing strategies on historical data",
       content: {
         sections: [
@@ -129,7 +129,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     zh: {
       title: "什么是回测？",
-      level: "模拟交易者",
+      category: "回测",
       description: "在历史数据上测试策略",
       content: {
         sections: [
@@ -156,7 +156,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     ja: {
       title: "バックテストとは？",
-      level: "ペーパートレーダー",
+      category: "バックテスト",
       description: "過去のデータで戦略をテストする",
       content: {
         sections: [
@@ -185,7 +185,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
   sharpe: {
     en: {
       title: "Sharpe Ratio Explained",
-      level: "Paper Trader",
+      category: "Backtesting",
       description: "Measuring risk-adjusted returns",
       content: {
         sections: [
@@ -212,7 +212,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     zh: {
       title: "夏普比率详解",
-      level: "模拟交易者",
+      category: "回测",
       description: "衡量风险调整后的收益",
       content: {
         sections: [
@@ -239,7 +239,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     ja: {
       title: "シャープレシオの解説",
-      level: "ペーパートレーダー",
+      category: "バックテスト",
       description: "リスク調整後リターンの測定",
       content: {
         sections: [
@@ -268,7 +268,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
   drawdown: {
     en: {
       title: "What is Drawdown?",
-      level: "Paper Trader",
+      category: "Backtesting",
       description: "Understanding worst-case losses",
       content: {
         sections: [
@@ -295,7 +295,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     zh: {
       title: "什么是回撤？",
-      level: "模拟交易者",
+      category: "回测",
       description: "了解最大亏损情况",
       content: {
         sections: [
@@ -322,7 +322,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     ja: {
       title: "ドローダウンとは？",
-      level: "ペーパートレーダー",
+      category: "バックテスト",
       description: "最悪の損失を理解する",
       content: {
         sections: [
@@ -351,7 +351,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
   overfitting: {
     en: {
       title: "Overfitting",
-      level: "Tinkerer",
+      category: "Validation",
       description: "Why strategies fail in live trading",
       content: {
         sections: [
@@ -378,7 +378,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     zh: {
       title: "过拟合",
-      level: "探索者",
+      category: "验证",
       description: "策略在实盘交易中失败的原因",
       content: {
         sections: [
@@ -405,7 +405,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     ja: {
       title: "オーバーフィッティング",
-      level: "ティンカラー",
+      category: "検証",
       description: "実取引で戦略が失敗する理由",
       content: {
         sections: [
@@ -434,7 +434,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
   lookahead: {
     en: {
       title: "Look-Ahead Bias",
-      level: "Tinkerer",
+      category: "Validation",
       description: "The most dangerous backtest mistake",
       content: {
         sections: [
@@ -461,7 +461,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     zh: {
       title: "前视偏差",
-      level: "探索者",
+      category: "验证",
       description: "回测中最危险的错误",
       content: {
         sections: [
@@ -488,7 +488,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     ja: {
       title: "先読みバイアス",
-      level: "ティンカラー",
+      category: "検証",
       description: "バックテストで最も危険な間違い",
       content: {
         sections: [
@@ -517,7 +517,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
   factor: {
     en: {
       title: "Factor Investing",
-      level: "Strategist",
+      category: "Signals",
       description: "Value, momentum, quality, and low-vol",
       content: {
         sections: [
@@ -544,7 +544,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     zh: {
       title: "因子投资",
-      level: "策略师",
+      category: "信号",
       description: "价值、动量、质量和低波动",
       content: {
         sections: [
@@ -571,7 +571,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     ja: {
       title: "ファクター投資",
-      level: "ストラテジスト",
+      category: "シグナル",
       description: "バリュー、モメンタム、クオリティ、低ボラティリティ",
       content: {
         sections: [
@@ -600,7 +600,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
   ml: {
     en: {
       title: "Machine Learning for Finance",
-      level: "Quant",
+      category: "Machine Learning",
       description: "Using ML to predict returns",
       content: {
         sections: [
@@ -627,7 +627,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     zh: {
       title: "金融中的机器学习",
-      level: "量化分析师",
+      category: "机器学习",
       description: "使用机器学习预测收益",
       content: {
         sections: [
@@ -654,7 +654,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     ja: {
       title: "金融のための機械学習",
-      level: "クオンツ",
+      category: "機械学習",
       description: "MLを使ったリターン予測",
       content: {
         sections: [
@@ -683,7 +683,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
   portfolio: {
     en: {
       title: "Portfolio Construction",
-      level: "Architect",
+      category: "Portfolio",
       description: "Combining strategies for optimal risk",
       content: {
         sections: [
@@ -710,7 +710,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     zh: {
       title: "投资组合构建",
-      level: "架构师",
+      category: "组合",
       description: "组合策略以优化风险",
       content: {
         sections: [
@@ -737,7 +737,7 @@ const topicsTranslations: Record<string, { en: TopicTranslation; zh: TopicTransl
     },
     ja: {
       title: "ポートフォリオ構築",
-      level: "アーキテクト",
+      category: "ポートフォリオ",
       description: "最適なリスクのための戦略の組み合わせ",
       content: {
         sections: [
@@ -801,7 +801,7 @@ function ContentModal({
               <h2 className="text-3xl font-bold text-cyan-300 mb-2" style={{ fontFamily: "var(--font-display)" }}>
                 {topic.title}
               </h2>
-              <p className="text-cyan-400/60 text-sm">{topic.level}</p>
+              <p className="text-cyan-400/60 text-sm">{topic.category}</p>
             </div>
             <button
               onClick={onClose}
@@ -879,7 +879,7 @@ export default function LearnPage() {
                   <p className="text-sm text-gray-400 group-hover:text-gray-300 transition-colors">{topic.description}</p>
                 </div>
                 <span className="text-xs text-cyan-400 font-mono bg-cyan-400/10 px-2 py-1 rounded border border-cyan-400/20 group-hover:border-cyan-400/40 group-hover:bg-cyan-400/20 transition-all">
-                  {topic.level}
+                  {topic.category}
                 </span>
               </div>
             </div>

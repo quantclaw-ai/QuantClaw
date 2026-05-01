@@ -22,50 +22,46 @@ export default function DashboardHome() {
     }
     return "modern";
   });
-  const [rawAgents, setRawAgents] = useState<FloorAgent[]>([]);
+  // Build agent slots from STATIONS so the floor always has something
+  // to render — even immediately on mount before /api/agents responds,
+  // and even if the backend is unreachable. Without this, navigating
+  // away and back briefly (or permanently, if the backend is down)
+  // leaves the floor blank with "0 active 0 idle 0 agents" because
+  // ``useState([])`` is the source of truth until fetch resolves.
+  const buildAgentSlots = (apiAgents: { name: string; enabled?: boolean }[] | null): FloorAgent[] =>
+    STATIONS.map((station) => {
+      const apiAgent = apiAgents?.find((a) => a.name === station.name);
+      // When the API call hasn't resolved yet (apiAgents === null), assume
+      // enabled — better to show everything live and let the API correct
+      // it than to show nothing. Once apiAgents is populated, honor the
+      // server's enabled flag (some agents may be disabled by config).
+      const enabled = apiAgents === null ? true : (apiAgent?.enabled ?? false);
+      return {
+        name: station.name,
+        displayName: station.displayName,
+        enabled,
+        locked: !enabled,
+        state: "idle" as const,
+        progress: 0,
+        speechBubble: null,
+        logHistory: [],
+        zone: station.zone,
+        x: station.x,
+        y: station.y,
+      };
+    });
+
+  const [rawAgents, setRawAgents] = useState<FloorAgent[]>(() => buildAgentSlots(null));
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
 
-  // Fetch agent data from API
+  // Fetch agent data from API to honor server-side enabled flags. We
+  // start from the STATIONS fallback above so the floor never blanks
+  // while this is in flight.
   useEffect(() => {
     fetch(`${API}/api/agents`)
       .then((r) => r.json())
-      .then((data) => {
-        const apiAgents = data.agents || [];
-        const floorAgents: FloorAgent[] = STATIONS.map((station) => {
-          const apiAgent = apiAgents.find((a: { name: string }) => a.name === station.name);
-          return {
-            name: station.name,
-            displayName: station.displayName,
-            enabled: apiAgent?.enabled ?? false,
-            locked: !(apiAgent?.enabled ?? false),
-            state: "idle" as const,
-            progress: 0,
-            speechBubble: null,
-            logHistory: [],
-            zone: station.zone,
-            x: station.x,
-            y: station.y,
-          };
-        });
-        setRawAgents(floorAgents);
-      })
-      .catch(() => {
-        // Fallback: show all agents as idle
-        const fallback: FloorAgent[] = STATIONS.map((station) => ({
-          name: station.name,
-          displayName: station.displayName,
-          enabled: true,
-          locked: false,
-          state: "idle" as const,
-          progress: 0,
-          speechBubble: null,
-          logHistory: [],
-          zone: station.zone,
-          x: station.x,
-          y: station.y,
-        }));
-        setRawAgents(fallback);
-      });
+      .then((data) => setRawAgents(buildAgentSlots(data.agents || [])))
+      .catch(() => { /* keep the optimistic slots from useState */ });
   }, []);
 
   // Wire up real-time WebSocket events
@@ -80,13 +76,12 @@ export default function DashboardHome() {
     setSelectedAgent(agentName);
   };
 
-  // Initialize to the default on both server and client to avoid hydration
-  // mismatch; the saved width is applied in the effect below after mount.
-  const [chatWidth, setChatWidth] = useState(480);
-  useEffect(() => {
-    const saved = localStorage.getItem("quantclaw_chat_width");
-    if (saved) setChatWidth(parseInt(saved, 10));
-  }, []);
+  const [chatWidth, setChatWidth] = useState(() => {
+    if (typeof window !== "undefined") {
+      return parseInt(localStorage.getItem("quantclaw_chat_width") || "480", 10);
+    }
+    return 480;
+  });
   const [dragging, setDragging] = useState(false);
 
   const handleDragStart = () => setDragging(true);

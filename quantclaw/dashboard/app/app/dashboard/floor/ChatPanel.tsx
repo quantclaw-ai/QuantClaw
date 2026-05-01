@@ -1,7 +1,6 @@
 "use client";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useLang } from "../../lang-context";
-import { useProviderModels } from "../../useProviderModels";
 import type { FloorAgent } from "./types";
 import { STATIONS, getStationByName, getStationDisplayName } from "./stations";
 
@@ -25,18 +24,17 @@ interface ProviderOption {
   local?: boolean;
 }
 
-// Display labels only — model lists come from useProviderModels at render time.
 const MODEL_PROVIDERS: ProviderOption[] = [
   { id: "ollama", name: "Ollama", models: [], local: true },
-  { id: "openai", name: "OpenAI", models: [] },
-  { id: "anthropic", name: "Anthropic", models: [] },
-  { id: "google", name: "Google Gemini", models: [] },
-  { id: "deepseek", name: "DeepSeek", models: [] },
-  { id: "xai", name: "xAI", models: [] },
-  { id: "mistral", name: "Mistral", models: [] },
-  { id: "groq", name: "Groq", models: [] },
-  { id: "openrouter", name: "OpenRouter", models: [] },
-  { id: "together", name: "Together AI", models: [] },
+  { id: "openai", name: "OpenAI", models: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"] },
+  { id: "anthropic", name: "Anthropic", models: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929", "claude-opus-4-5-20251101"] },
+  { id: "google", name: "Google Gemini", models: ["gemini-3.1-pro-preview", "gemini-3-flash-preview", "gemini-3.1-flash-lite-preview", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-flash-image"] },
+  { id: "deepseek", name: "DeepSeek", models: ["deepseek-chat", "deepseek-reasoner"] },
+  { id: "xai", name: "xAI", models: ["grok-4.20-0309-reasoning", "grok-4.20-0309-non-reasoning", "grok-4-1-fast-reasoning", "grok-4-1-fast-non-reasoning"] },
+  { id: "mistral", name: "Mistral", models: ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest", "codestral-2501", "devstral-2-25-12"] },
+  { id: "groq", name: "Groq", models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3-32b"] },
+  { id: "openrouter", name: "OpenRouter", models: ["openai/gpt-5.4", "anthropic/claude-opus-4-6", "anthropic/claude-sonnet-4-6", "google/gemini-3.1-pro-preview", "deepseek/deepseek-chat"] },
+  { id: "together", name: "Together AI", models: ["meta-llama/Llama-3.3-70B-Instruct-Turbo", "deepseek-ai/DeepSeek-V3", "Qwen/Qwen2.5-72B-Instruct-Turbo"] },
 ];
 
 const AGENT_COLORS: Record<string, string> = {
@@ -155,13 +153,12 @@ const chatI18n: Record<Lang, {
   },
 };
 
-// Locale-independent HH:MM so SSR and client produce identical strings.
-// toLocaleTimeString varies between Node (often 24h) and browser (locale-
-// dependent, often 12h with AM/PM) and was crashing hydration.
 function formatTime(date: Date): string {
-  const h = String(date.getHours()).padStart(2, "0");
-  const m = String(date.getMinutes()).padStart(2, "0");
-  return `${h}:${m}`;
+  // Pin to en-US so server and client render the same string. Passing
+  // ``[]`` lets each side use its own locale ("PM" on en-US server vs
+  // "p.m." on en-CA client) and that text-content mismatch alone is
+  // enough to trip React's hydration check.
+  return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
 }
 
 function AgentBadge({ name }: { name: string }) {
@@ -218,33 +215,6 @@ function isBootstrapMessage(message: Message): boolean {
   return message.id === "welcome" || message.id === "greeting";
 }
 
-function isSimpleQuery(message: string): boolean {
-  const lower = message.toLowerCase();
-  // Questions that should be answered directly without orchestration
-  const queryPatterns = [
-    /^(what|which|who|where|when|how)\s/i,
-    /model/i,
-    /help/i,
-    /status/i,
-    /available/i,
-    /can\s(i|you)/i,
-    /version/i,
-    /explain/i,
-    /tell\s(me|us)/i,
-  ];
-
-  // Check if message is a simple question
-  if (queryPatterns.some(p => p.test(lower))) {
-    // But exclude workflow commands disguised as questions
-    const workflows = ["backtest", "trade", "execute", "run", "start", "launch"];
-    if (!workflows.some(w => lower.includes(w))) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
 function routeToAgent(message: string): string {
   const lower = message.toLowerCase();
   if (lower.includes("backtest") || lower.includes("validate") || lower.includes("回测") || lower.includes("校验") || lower.includes("バックテスト") || lower.includes("バリデート")) return "validator";
@@ -269,44 +239,50 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
   const { lang } = useLang();
   const t = chatI18n[lang as Lang] || chatI18n.en;
 
-  // Empty on first render (server + initial client) so SSR and hydration match;
-  // saved history / bootstrap messages load in the effect below. Avoids
-  // hydration mismatches from new Date() and locale-dependent formatting.
+  // Start with an empty array on both server and client so the SSR
+  // tree matches the initial client tree exactly. Reading localStorage
+  // here (or even calling ``createBootstrapMessages`` which contains
+  // ``new Date()``) makes server and client diverge — the previous
+  // "defer chat history load" commit fixed half of this; the other
+  // half (bootstrap messages with non-deterministic timestamps) was
+  // still tripping hydration. Real messages get loaded in the effect
+  // below, after hydration completes.
   const [messages, setMessages] = useState<Message[]>([]);
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("quantclaw_chat_history");
-      if (saved) {
-        const parsed = JSON.parse(saved) as Message[];
-        setMessages(parsed.map((m) => ({ ...m, timestamp: new Date(m.timestamp) })));
-        return;
-      }
-    } catch { /* ignore corrupt data */ }
-    setMessages(createBootstrapMessages(t));
-    // t is stable per language; reloading it would reset the chat which we don't want
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   const [input, setInput] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
   const [isOrchestrating, setIsOrchestrating] = useState(false);
   const [targetAgent, setTargetAgent] = useState("scheduler");
   const [showMentionDropdown, setShowMentionDropdown] = useState(false);
   const [mentionFilter, setMentionFilter] = useState("");
-  // Initialize to defaults; load saved values after mount to avoid hydration
-  // mismatch between server-rendered HTML and client localStorage.
+  // SSR-safe defaults. Reading localStorage in the useState initializer
+  // would make the server render "ollama" while the client (which has
+  // the saved value) renders e.g. "openai" — that's the React hydration
+  // mismatch you saw. We initialize with the same value the server
+  // would compute, then sync from localStorage in a useEffect below.
   const [activeProvider, setActiveProvider] = useState("ollama");
   const [selectedModel, setSelectedModel] = useState("");
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [showModelPicker, setShowModelPicker] = useState(false);
   const [fontSize, setFontSize] = useState(16);
 
+  // Hydrate provider/model/fontSize from localStorage after mount —
+  // running this in an effect keeps the initial render deterministic
+  // across server and client so React's hydration check passes.
   useEffect(() => {
-    const provider = localStorage.getItem("quantclaw_provider");
-    if (provider) setActiveProvider(provider);
-    const model = localStorage.getItem("quantclaw_model");
-    if (model) setSelectedModel(model);
-    const fs = localStorage.getItem("quantclaw_chat_fontsize");
-    if (fs) setFontSize(parseInt(fs, 10));
+    const savedProvider = localStorage.getItem("quantclaw_provider") || "ollama";
+    setActiveProvider(savedProvider);
+
+    const savedModel = localStorage.getItem("quantclaw_model") || "";
+    const providerDef = MODEL_PROVIDERS.find((p) => p.id === savedProvider);
+    const validModels = providerDef?.models || [];
+    if (savedModel && (savedProvider === "ollama" || validModels.includes(savedModel))) {
+      setSelectedModel(savedModel);
+    } else if (validModels.length > 0) {
+      setSelectedModel(validModels[0]);
+    }
+
+    const savedFontSize = parseInt(localStorage.getItem("quantclaw_chat_fontsize") || "16", 10);
+    if (!isNaN(savedFontSize)) setFontSize(savedFontSize);
   }, []);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -323,22 +299,130 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
       .catch(() => {});
   }, []);
 
-  // Persist messages to localStorage
+  // Tracks whether we've finished loading messages from localStorage.
+  // The persist effect below MUST be gated on this — without it, the
+  // initial render's empty ``messages`` array would overwrite the
+  // user's saved chat history before the load effect could read it.
+  const [messagesHydrated, setMessagesHydrated] = useState(false);
+
+  // Load messages from localStorage on mount (after hydration). Falling
+  // back to bootstrap messages preserves the welcome/greeting on a
+  // fresh install. Both server and client initially render no messages,
+  // then the client populates here — same SSR-safe pattern as the
+  // provider/model state above.
+  //
+  // We also dedup by ``id`` on load: an earlier replay-dedup bug let
+  // the same narrative get saved twice in some users' localStorage,
+  // which then triggers React's duplicate-key warning forever. Cleaning
+  // it on load + persisting the cleaned array fixes existing corrupted
+  // histories without requiring the user to clear chat manually.
   useEffect(() => {
+    let initial: Message[];
+    try {
+      const saved = localStorage.getItem("quantclaw_chat_history");
+      if (saved) {
+        const parsed = JSON.parse(saved) as Message[];
+        const seen = new Set<string>();
+        const deduped: Message[] = [];
+        for (const m of parsed) {
+          if (!m || typeof m.id !== "string") continue;
+          if (seen.has(m.id)) continue;
+          seen.add(m.id);
+          deduped.push({ ...m, timestamp: new Date(m.timestamp) });
+        }
+        initial = deduped;
+      } else {
+        initial = createBootstrapMessages(t);
+      }
+    } catch {
+      initial = createBootstrapMessages(t);
+    }
+    setMessages(initial);
+    setMessagesHydrated(true);
+    // ``t`` is read once at mount; subsequent language switches don't
+    // re-run this — chat history shouldn't be re-bootstrapped on locale change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist messages to localStorage, but only after we've loaded the
+  // initial state — otherwise the empty array from the first render
+  // would clobber the saved history.
+  useEffect(() => {
+    if (!messagesHydrated) return;
     try {
       localStorage.setItem("quantclaw_chat_history", JSON.stringify(messages));
     } catch { /* storage full or unavailable */ }
-  }, [messages]);
+  }, [messages, messagesHydrated]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Subscribe to WebSocket for chat.narrative and orchestration.cycle_complete events
+  // Replay events missed while ChatPanel was unmounted, then subscribe
+  // to the live WebSocket. Without the replay step, navigating to any
+  // other tab and back drops every chat.narrative + cycle_complete that
+  // arrived in between — making the chat appear frozen even when the
+  // backend cycle is still running. We also re-derive isOrchestrating
+  // from the current OODA phase so the spinner survives navigation.
   useEffect(() => {
     let ws: WebSocket | null = null;
     let closed = false;
+
+    function appendNarrativeEvents(events: { type: string; timestamp?: string; payload?: { message?: string; role?: string } }[]) {
+      if (events.length === 0) return;
+      setMessages((prev) => {
+        // Dedup by message ``id`` rather than by reformatted timestamp:
+        // backend emits microsecond-precision timestamps like
+        // "2026-04-29T22:43:04.436405+00:00" while ``Date.toISOString()``
+        // produces millisecond-precision "2026-04-29T22:43:04.436Z" —
+        // string-comparing those always fails, which let the same event
+        // get appended twice (once via WS, once via replay-on-mount)
+        // and triggered React's duplicate-key warning.
+        const existingIds = new Set(prev.map((m) => m.id));
+        const additions: Message[] = [];
+        for (const e of events) {
+          if (e.type !== "chat.narrative" || !e.payload?.message) continue;
+          const id = `narrative-${e.timestamp || Date.now()}`;
+          if (existingIds.has(id)) continue;
+          additions.push({
+            id,
+            role: "assistant",
+            content: e.payload.message,
+            agent: e.payload.role || "scheduler",
+            timestamp: e.timestamp ? new Date(e.timestamp) : new Date(),
+            status: "done",
+          });
+          existingIds.add(id);
+        }
+        return additions.length === 0 ? prev : [...prev, ...additions];
+      });
+      const lastTs = events[events.length - 1]?.timestamp;
+      if (lastTs) {
+        try { localStorage.setItem("quantclaw_chat_last_event_ts", lastTs); } catch { /* ignore */ }
+      }
+    }
+
+    async function replayMissed(): Promise<void> {
+      try {
+        const lastTs = localStorage.getItem("quantclaw_chat_last_event_ts") || "";
+        const params = new URLSearchParams({ type: "chat.narrative", limit: "200" });
+        if (lastTs) params.set("since", lastTs);
+        const res = await fetch(`${API}/api/events?${params.toString()}`);
+        const data = await res.json();
+        if (closed) return;
+        appendNarrativeEvents(data.events || []);
+      } catch { /* offline / backend not up — fine, just skip replay */ }
+
+      try {
+        const res = await fetch(`${API}/api/orchestration/status`);
+        const data = await res.json();
+        if (closed) return;
+        if (data.ooda_phase && data.ooda_phase !== "sleep") {
+          setIsOrchestrating(true);
+        }
+      } catch { /* ignore */ }
+    }
 
     function connect() {
       if (closed) return;
@@ -348,14 +432,7 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
           try {
             const event = JSON.parse(e.data);
             if (event.type === "chat.narrative" && event.payload?.message) {
-              setMessages((prev) => [...prev, {
-                id: `narrative-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                role: "assistant" as const,
-                content: event.payload.message,
-                agent: event.payload.role || "scheduler",
-                timestamp: new Date(),
-                status: "done" as const,
-              }]);
+              appendNarrativeEvents([event]);
             }
             if (event.type === "orchestration.cycle_complete") {
               setIsOrchestrating(false);
@@ -371,7 +448,8 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
       }
     }
 
-    connect();
+    void replayMissed().then(() => { if (!closed) connect(); });
+
     return () => {
       closed = true;
       if (ws) ws.close();
@@ -398,53 +476,6 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
 
       setMessages((prev) => [...prev, userMsg]);
       setInput("");
-
-      // Check if this is a simple info query (should not trigger orchestration)
-      if (isSimpleQuery(displayContent)) {
-        setIsStreaming(true);
-        try {
-          // Call backend with query_only flag to get LLM response without orchestration
-          const res = await fetch(`${API}/api/chat`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              message: displayContent,
-              lang,
-              history: messages
-                .filter((m) => m.role !== "system" && !isBootstrapMessage(m))
-                .slice(-5)
-                .map((m) => ({ role: m.role, content: m.content })),
-              query_only: true, // Flag for backend: answer with LLM, don't trigger orchestration
-              model: selectedModel,
-              provider: activeProvider,
-              api_key: localStorage.getItem(`quantclaw_key_${activeProvider}`) || "",
-              agent_models: JSON.parse(localStorage.getItem("quantclaw_agent_models") || "{}"),
-            }),
-          });
-          const data = await res.json();
-          const assistantMsg: Message = {
-            id: `assistant-${Date.now()}`,
-            role: "assistant",
-            agent: "scheduler",
-            content: data.response || data.error || "Let me help with that.",
-            timestamp: new Date(),
-            status: data.error ? "error" : "done",
-          };
-          setMessages((prev) => [...prev, assistantMsg]);
-        } catch (e) {
-          setMessages((prev) => [...prev, {
-            id: `assistant-${Date.now()}`,
-            role: "assistant",
-            agent: "scheduler",
-            content: "I couldn't reach the backend to answer that. Try again or ask about a trading task.",
-            timestamp: new Date(),
-            status: "error",
-          }]);
-        }
-        setIsStreaming(false);
-        return;
-      }
-
       setIsStreaming(true);
 
       const history = messages
@@ -565,13 +596,11 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
   const switchProvider = (providerId: string) => {
     setActiveProvider(providerId);
     localStorage.setItem("quantclaw_provider", providerId);
-    if (providerId === "ollama" && ollamaModels.length > 0) {
-      setSelectedModel(ollamaModels[0]);
-      localStorage.setItem("quantclaw_model", ollamaModels[0]);
-    } else {
-      // Cloud provider: clear selection — auto-fills when live catalog arrives.
-      setSelectedModel("");
-      localStorage.removeItem("quantclaw_model");
+    const p = MODEL_PROVIDERS.find((mp) => mp.id === providerId);
+    const models = providerId === "ollama" ? ollamaModels : (p?.models || []);
+    if (models.length > 0) {
+      setSelectedModel(models[0]);
+      localStorage.setItem("quantclaw_model", models[0]);
     }
     setShowModelPicker(false);
   };
@@ -627,19 +656,9 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
     }, 0);
   };
 
-  // Live model catalog for the active provider (cached server-side, refreshes hourly).
-  const { models: liveProviderModels } = useProviderModels(
-    activeProvider === "ollama" ? "" : activeProvider,
-  );
-  const currentModels = activeProvider === "ollama" ? ollamaModels : liveProviderModels;
-
-  // Auto-select first model when catalog loads and nothing is selected yet.
-  useEffect(() => {
-    if (!selectedModel && currentModels.length > 0) {
-      setSelectedModel(currentModels[0]);
-      localStorage.setItem("quantclaw_model", currentModels[0]);
-    }
-  }, [currentModels, selectedModel]);
+  const currentModels = activeProvider === "ollama"
+    ? ollamaModels
+    : (MODEL_PROVIDERS.find((p) => p.id === activeProvider)?.models || []);
 
   const enabledAgents = agents.filter((a) => a.enabled);
   const effectiveTargetAgent = selectedAgent || targetAgent;
@@ -658,48 +677,51 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
   return (
     <div className="flex flex-col h-full bg-void border-l border-trace">
       {/* Header */}
-      <div className="flex items-center justify-between px-5 py-3 border-b border-trace/60 bg-gradient-to-r from-void to-void/80">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-trace/60">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2.5">
             <span
-              className="w-2.5 h-2.5 rounded-full animate-pulse"
+              className="w-3 h-3 rounded-full"
               style={{ backgroundColor: targetColor }}
             />
-            <span className="text-sm font-mono text-[#6a7a9a] tracking-wider">
+            <span className="text-base font-semibold text-[#a0b0cc]">
               {t.talkingTo}
             </span>
             <span
-              className="text-sm font-semibold"
+              className="text-base font-mono font-bold"
               style={{ color: targetColor }}
             >
               {targetDisplayName}
             </span>
           </div>
+          <span className="text-xs font-mono text-muted bg-keel/50 px-2.5 py-1 rounded">
+            {enabledAgents.length} {t.agentsOnline}
+          </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
         {/* Font size controls */}
-        <div className="flex items-center gap-1 border border-trace/30 rounded-lg px-1 py-0.5 bg-void/40">
+        <div className="flex items-center gap-1 bg-keel/50 rounded-lg px-1.5 py-1">
           <button
             onClick={() => {
               const n = Math.max(10, fontSize - 2);
               setFontSize(n);
               localStorage.setItem("quantclaw_chat_fontsize", String(n));
             }}
-            className="w-6 h-6 flex items-center justify-center text-[#6a7a9a] hover:text-gold text-xs cursor-pointer rounded transition-colors"
+            className="w-7 h-7 flex items-center justify-center text-[#6a7a9a] hover:text-[#a0b0cc] text-sm cursor-pointer rounded hover:bg-keel/50"
           >
-            −
+            A-
           </button>
-          <span className="text-[10px] text-[#6a7a9a] font-mono w-5 text-center border-l border-r border-trace/20 px-1">{fontSize}</span>
+          <span className="text-[11px] text-muted font-mono w-6 text-center">{fontSize}</span>
           <button
             onClick={() => {
               const n = Math.min(24, fontSize + 2);
               setFontSize(n);
               localStorage.setItem("quantclaw_chat_fontsize", String(n));
             }}
-            className="w-6 h-6 flex items-center justify-center text-[#6a7a9a] hover:text-gold text-xs cursor-pointer rounded transition-colors"
+            className="w-7 h-7 flex items-center justify-center text-[#6a7a9a] hover:text-[#a0b0cc] text-base cursor-pointer rounded hover:bg-keel/50"
           >
-            +
+            A+
           </button>
         </div>
 
@@ -707,17 +729,17 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
         <div className="relative">
           <button
             onClick={() => setShowModelPicker(!showModelPicker)}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-trace/30 hover:border-trace/60 bg-void/40 transition-all cursor-pointer text-xs"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-keel/50 border border-trace hover:border-trace-glow transition-all cursor-pointer text-sm"
           >
-            <span className="text-[#6a7a9a] font-mono">
+            <span className="text-[#6a7a9a] font-medium">
               {MODEL_PROVIDERS.find((p) => p.id === activeProvider)?.name || activeProvider}
             </span>
-            <span className="text-[#2a3a5a] text-[9px]">·</span>
-            <span className="text-gold font-mono text-[10px]">
-              {selectedModel?.split("/").pop()?.slice(0, 12) || "\u2014"}
+            <span className="text-[#2a3a5a]">/</span>
+            <span className="text-gold font-mono">
+              {selectedModel || "\u2014"}
             </span>
             <svg
-              className={`w-2.5 h-2.5 text-[#6a7a9a] transition-transform ${showModelPicker ? "rotate-180" : ""}`}
+              className={`w-3 h-3 text-[#2a3a5a] transition-transform ${showModelPicker ? "rotate-180" : ""}`}
               viewBox="0 0 12 12"
               fill="none"
             >
@@ -728,19 +750,19 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
           {showModelPicker && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowModelPicker(false)} />
-              <div className="absolute right-0 top-full mt-1.5 z-50 w-64 bg-hull border border-trace/40 rounded-lg shadow-2xl shadow-black/60 overflow-hidden">
+              <div className="absolute right-0 top-full mt-2 z-50 w-72 bg-hull border border-trace rounded-xl shadow-2xl shadow-black/50 overflow-hidden">
                 {/* Providers */}
-                <div className="p-2.5 border-b border-trace/30 bg-void/40">
-                  <p className="text-[9px] font-mono text-[#6a7a9a] uppercase tracking-wider px-1.5 py-0.5">Provider</p>
-                  <div className="flex flex-wrap gap-1 mt-1">
+                <div className="p-2 border-b border-trace/60">
+                  <p className="text-[10px] font-mono text-[#2a3a5a] uppercase tracking-wider px-2 py-1">Provider</p>
+                  <div className="flex flex-wrap gap-1">
                     {MODEL_PROVIDERS.map((p) => (
                       <button
                         key={p.id}
                         onClick={() => switchProvider(p.id)}
-                        className={`px-2 py-0.5 rounded text-[10px] transition-all cursor-pointer ${
+                        className={`px-2 py-1 rounded-md text-[11px] transition-all cursor-pointer ${
                           activeProvider === p.id
-                            ? "bg-gold/20 text-gold border border-gold/40"
-                            : "text-[#6a7a9a] hover:text-[#a0b0cc] border border-trace/20 hover:border-trace/40"
+                            ? "bg-gold/10 text-gold border border-gold/30"
+                            : "text-muted hover:text-[#8a9ab0] border border-transparent hover:bg-keel/50"
                         }`}
                       >
                         {p.name}
@@ -749,30 +771,29 @@ export function ChatPanel({ agents, selectedAgent, onAgentSelect }: ChatPanelPro
                   </div>
                 </div>
                 {/* Models */}
-                <div className="p-2.5 max-h-40 overflow-y-auto">
-                  <p className="text-[9px] font-mono text-[#6a7a9a] uppercase tracking-wider px-1.5 py-0.5">Model</p>
+                <div className="p-2 max-h-48 overflow-y-auto">
+                  <p className="text-[10px] font-mono text-[#2a3a5a] uppercase tracking-wider px-2 py-1">Model</p>
                   {currentModels.length > 0 ? (
-                    <div className="space-y-0.5 mt-1">
+                    <div className="space-y-0.5">
                       {currentModels.map((m) => (
                         <button
                           key={m}
                           onClick={() => switchModel(m)}
-                          className={`w-full text-left px-2 py-1 rounded text-[10px] font-mono transition-all cursor-pointer truncate ${
+                          className={`w-full text-left px-3 py-1.5 rounded-md text-[11px] font-mono transition-all cursor-pointer ${
                             selectedModel === m
-                              ? "bg-gold/15 text-gold"
-                              : "text-[#6a7a9a] hover:bg-keel/40 hover:text-[#a0b0cc]"
+                              ? "bg-gold/10 text-gold"
+                              : "text-[#6a7a9a] hover:bg-keel/50 hover:text-[#a0b0cc]"
                           }`}
-                          title={m}
                         >
                           {m}
                         </button>
                       ))}
                     </div>
                   ) : (
-                    <p className="text-[10px] text-[#6a7a9a] px-2 py-1.5 mt-1">
+                    <p className="text-[11px] text-[#2a3a5a] px-3 py-2">
                       {activeProvider === "ollama"
-                        ? (lang === "zh" ? "未检测到模型" : lang === "ja" ? "モデルが見つかりません" : "No models")
-                        : (lang === "zh" ? "需配置 API" : lang === "ja" ? "APIキー設定" : "Configure API")}
+                        ? (lang === "zh" ? "未检测到模型" : lang === "ja" ? "モデルが見つかりません" : "No models detected")
+                        : (lang === "zh" ? "请先配置 API 密钥" : lang === "ja" ? "APIキーを設定してください" : "Configure API key in Settings")}
                     </p>
                   )}
                 </div>

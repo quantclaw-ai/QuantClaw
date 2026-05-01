@@ -10,7 +10,7 @@ from quantclaw.events.bus import EventBus
 
 def test_executor_paper_trade():
     bus = EventBus()
-    config = {"level": 0}
+    config = {}
     agent = ExecutorAgent(bus=bus, config=config)
 
     async def _run():
@@ -44,10 +44,10 @@ def test_executor_paper_no_orders():
     asyncio.run(_run())
 
 
-def test_executor_respects_trust_level():
-    """Low trust level should use paper trading even with broker configured."""
+def test_executor_requires_live_trading_flag():
+    """Broker config alone should still use paper trading unless live execution is explicit."""
     bus = EventBus()
-    config = {"level": 1, "plugins": {"broker": "broker_ib"}}
+    config = {"plugins": {"broker": "broker_ib"}}
     agent = ExecutorAgent(bus=bus, config=config)
 
     async def _run():

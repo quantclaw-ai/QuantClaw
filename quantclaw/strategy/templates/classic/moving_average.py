@@ -4,7 +4,7 @@
 class Strategy:
     name = "Moving Average Crossover"
     description = "Buy when the 50-day moving average crosses above the 200-day moving average."
-    difficulty = "beginner"
+    style = "classic"
     universe = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "JPM", "V", "UNH"]
     frequency = "weekly"
 

@@ -12,8 +12,17 @@ photo_assets/
 .vscode/
 .idea/
 .env
+.env.*
 *.db
 quantclaw.yaml
+oauth_credentials.json
+**/oauth_credentials.json
+*_credentials.json
+*.pem
+*.p12
+*.pfx
+*.key
+*.sqlite
 strategies/
 package-lock.json
 quantclaw/**/package-lock.json

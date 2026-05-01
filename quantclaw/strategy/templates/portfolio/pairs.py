@@ -4,7 +4,7 @@
 class Strategy:
     name = "Pairs Trading"
     description = "Trade the z-score of the spread between two cointegrated assets."
-    difficulty = "intermediate"
+    style = "portfolio"
     universe = ["GLD", "GDX"]
     frequency = "daily"
     lookback = 60

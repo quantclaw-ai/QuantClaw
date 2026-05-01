@@ -4,7 +4,7 @@
 class Strategy:
     name = "ML Signal"
     description = "Train a LightGBM model on momentum and mean-reversion features to predict 5-day returns."
-    difficulty = "advanced"
+    style = "machine_learning"
     universe = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "JPM", "V", "UNH"]
     frequency = "weekly"
     top_n = 3

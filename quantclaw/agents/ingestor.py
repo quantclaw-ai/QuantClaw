@@ -57,8 +57,57 @@ class IngestorAgent(BaseAgent):
                 )
 
         if symbols:
+            # Distinguish cache hits from network fetches in the
+            # narrative so it's obvious when the planner re-asks for
+            # symbols already on disk. The underlying CachedDataPlugin
+            # was already deduping the actual network calls — this just
+            # surfaces what was happening invisibly before. ``cached``
+            # may be empty if it's a fresh install or wasn't populated
+            # for these specific symbols yet.
+            cached_set = set(
+                sym for sym, info in inventory.items()
+                if info.get("fresh", False)
+            ) if inventory else set()
+            cache_hits = [s for s in symbols if s in cached_set]
+            cache_misses = [s for s in symbols if s not in cached_set]
+
+            # Phrasing note: a "cache hit" only confirms the file
+            # exists and is mtime-fresh — the underlying date range may
+            # not fully cover the new request, so the plugin can still
+            # backfill missing tails. The narrative therefore says "in
+            # cache" / "reusing", not "skipping network fetch".
+            if cache_hits and not cache_misses:
+                await self._narrate(
+                    f"All {len(symbols)} symbol{'s' if len(symbols) != 1 else ''} in local cache "
+                    f"({', '.join(cache_hits[:5])}{'…' if len(cache_hits) > 5 else ''}) — "
+                    f"reusing on-disk data (only missing date ranges, if any, will be backfilled)."
+                )
+            elif cache_hits:
+                await self._narrate(
+                    f"Fetching {len(cache_misses)} new symbol{'s' if len(cache_misses) != 1 else ''} "
+                    f"({', '.join(cache_misses[:5])}{'…' if len(cache_misses) > 5 else ''}); "
+                    f"{len(cache_hits)} already in cache (reusing on-disk data)."
+                )
+            else:
+                await self._narrate(
+                    f"Fetching market data for {len(symbols)} symbol{'s' if len(symbols) != 1 else ''}"
+                    + (f" ({', '.join(symbols[:5])}{'…' if len(symbols) > 5 else ''})" if symbols else "")
+                    + (f" with {len(extra_fields)} extra fields" if extra_fields else "")
+                    + "…"
+                )
+
             bundle = await self._fetch_market_data(symbols, start, end, extra_fields)
             results["ohlcv"] = bundle.metadata
+            ok_count = sum(
+                1 for v in bundle.metadata.values()
+                if isinstance(v, dict) and "error" not in v
+            )
+            # Always summarize the result — even when everything was in
+            # cache, the bundle reports how many symbols actually
+            # produced rows (cached files can be empty/corrupt).
+            await self._narrate(
+                f"Fetched {ok_count}/{len(symbols)} symbols successfully."
+            )
 
             if bundle.availability:
                 results["availability"] = bundle.availability
@@ -78,9 +127,16 @@ class IngestorAgent(BaseAgent):
                 if enrichment:
                     results["extra_fields"] = enrichment
 
+        await self._narrate("Auto-ingesting macro/alt-data sources…")
         macro = await self._auto_ingest_free_sources(start, end)
         if macro:
             results["macro"] = macro
+            total_series = sum(
+                v.get("series_count", 0) for v in macro.values() if isinstance(v, dict)
+            )
+            await self._narrate(
+                f"Ingested {total_series} series from {len(macro)} macro source{'s' if len(macro) != 1 else ''}."
+            )
 
         if "columns" not in results:
             results["columns"] = ["open", "high", "low", "close", "volume"]
@@ -185,8 +241,77 @@ class IngestorAgent(BaseAgent):
             }
         return enrichment
 
+    @staticmethod
+    def _ingest_one_plugin_sync(plugin, plugin_name: str, requested_start: str, end: str) -> dict | None:
+        """Synchronously fetch all symbols for one plugin.
+
+        Runs entirely off the event loop (via ``asyncio.to_thread`` from
+        the caller). Returns a result dict or None if no usable data.
+        """
+        try:
+            series_ids = plugin.list_symbols()
+        except Exception:
+            logger.debug("list_symbols failed for %s", plugin_name)
+            return None
+
+        if plugin_name in _FUNDAMENTALS_ONLY:
+            fetched = {}
+            for sid in series_ids:
+                try:
+                    fundamentals = plugin.fetch_fundamentals(sid)
+                    if fundamentals:
+                        fetched[sid] = {"fundamentals": fundamentals}
+                except Exception:
+                    logger.debug("Failed fundamentals %s/%s", plugin_name, sid)
+            if not fetched:
+                return None
+            logger.info(
+                "Auto-ingested %d fundamentals from %s",
+                len(fetched), plugin_name,
+            )
+            return {
+                "series_count": len(fetched),
+                "type": "fundamentals",
+                "series": fetched,
+            }
+
+        fetched = {}
+        for sid in series_ids:
+            try:
+                df = plugin.fetch_ohlcv(sid, requested_start, end)
+                if not df.empty:
+                    fetched[sid] = {
+                        "rows": len(df),
+                        "start": str(df.index[0]),
+                        "end": str(df.index[-1]),
+                    }
+            except Exception:
+                logger.debug("Failed to fetch %s/%s", plugin_name, sid)
+        if not fetched:
+            return None
+        logger.info(
+            "Auto-ingested %d series from %s", len(fetched), plugin_name,
+        )
+        return {
+            "series_count": len(fetched),
+            "type": "time_series",
+            "series": fetched,
+        }
+
     async def _auto_ingest_free_sources(self, start: str | None, end: str) -> dict:
-        """Auto-ingest free macro and alternative sources."""
+        """Auto-ingest free macro and alternative sources.
+
+        Each free plugin's ``fetch_ohlcv`` / ``fetch_fundamentals`` uses
+        synchronous ``requests.get`` (DataPlugin is a sync interface).
+        Calling them directly from this async method blocks the event
+        loop for the full network duration — for WorldBank that's
+        hundreds of sequential calls and was wedging the loop for 17+
+        minutes, causing /api/health to time out, WS broadcasts to
+        stall, and the floor to look frozen.
+        We dispatch each plugin's whole sync workload to a thread and
+        run plugins in parallel via ``asyncio.gather``.
+        """
+        import asyncio
         from quantclaw.plugins.manager import PluginManager
 
         data_plugin_names = self._config.get("plugins", {}).get("data", ["data_yfinance"])
@@ -202,65 +327,23 @@ class IngestorAgent(BaseAgent):
 
         pm = PluginManager()
         pm.discover()
-        macro_results: dict = {}
         requested_start = start or "1970-01-01"
 
-        for plugin_name in free_names:
+        async def run_one(plugin_name: str):
             plugin = pm.get("data", plugin_name)
             if plugin is None:
-                continue
+                return plugin_name, None
             try:
-                series_ids = plugin.list_symbols()
-
-                if plugin_name in _FUNDAMENTALS_ONLY:
-                    fetched = {}
-                    for sid in series_ids:
-                        try:
-                            fundamentals = plugin.fetch_fundamentals(sid)
-                            if fundamentals:
-                                fetched[sid] = {"fundamentals": fundamentals}
-                        except Exception:
-                            logger.debug("Failed fundamentals %s/%s", plugin_name, sid)
-                    if fetched:
-                        macro_results[plugin_name] = {
-                            "series_count": len(fetched),
-                            "type": "fundamentals",
-                            "series": fetched,
-                        }
-                        logger.info(
-                            "Auto-ingested %d fundamentals from %s",
-                            len(fetched),
-                            plugin_name,
-                        )
-                    continue
-
-                fetched = {}
-                for sid in series_ids:
-                    try:
-                        df = plugin.fetch_ohlcv(sid, requested_start, end)
-                        if not df.empty:
-                            fetched[sid] = {
-                                "rows": len(df),
-                                "start": str(df.index[0]),
-                                "end": str(df.index[-1]),
-                            }
-                    except Exception:
-                        logger.debug("Failed to fetch %s/%s", plugin_name, sid)
-                if fetched:
-                    macro_results[plugin_name] = {
-                        "series_count": len(fetched),
-                        "type": "time_series",
-                        "series": fetched,
-                    }
-                    logger.info(
-                        "Auto-ingested %d series from %s",
-                        len(fetched),
-                        plugin_name,
-                    )
+                result = await asyncio.to_thread(
+                    self._ingest_one_plugin_sync, plugin, plugin_name, requested_start, end,
+                )
+                return plugin_name, result
             except Exception:
                 logger.debug("Auto-ingest failed for %s", plugin_name)
+                return plugin_name, None
 
-        return macro_results
+        outcomes = await asyncio.gather(*(run_one(n) for n in free_names))
+        return {name: result for name, result in outcomes if result is not None}
 
     async def _fetch_market_data(
         self,

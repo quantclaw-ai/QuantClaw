@@ -1,5 +1,5 @@
 "use client";
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, type ReactNode } from "react";
 
 type Lang = "en" | "zh" | "ja";
 
@@ -11,23 +11,16 @@ interface LangContextValue {
 const LangContext = createContext<LangContextValue>({ lang: "en", setLang: () => {} });
 
 export function LangProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>("en");
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
+  const [lang, setLangState] = useState<Lang>(() => {
+    if (typeof window === "undefined") return "en";
     const stored = localStorage.getItem("quantclaw_lang") as Lang | null;
-    if (stored && ["en", "zh", "ja"].includes(stored)) {
-      setLangState(stored);
-    }
-    setLoaded(true);
-  }, []);
+    return stored && ["en", "zh", "ja"].includes(stored) ? stored : "en";
+  });
 
   const setLang = (newLang: Lang) => {
     setLangState(newLang);
     localStorage.setItem("quantclaw_lang", newLang);
   };
-
-  if (!loaded) return null;
 
   return (
     <LangContext.Provider value={{ lang, setLang }}>

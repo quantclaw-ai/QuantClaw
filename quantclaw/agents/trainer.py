@@ -129,9 +129,13 @@ class TrainerAgent(BaseAgent):
             timeout = self._config.get("sandbox", {}).get("timeout", 60)
 
             # Fetch data for sandbox
+            await self._narrate(f"Loading training data for {len(symbols)} symbol{'s' if len(symbols) != 1 else ''}…")
             dataframes = await self._fetch_data(symbols, task)
             data_summary = self._summarize_dataframes(dataframes)
 
+            await self._narrate(
+                f"Training {model_type} on {len(factors)} factor{'s' if len(factors) != 1 else ''}…"
+            )
             result = await sandbox.execute_code(script, timeout=timeout, data=dataframes)
 
             if result.status == "ok" and result.result:
@@ -147,6 +151,19 @@ class TrainerAgent(BaseAgent):
                     data["strategy_path"] = strategy_path
                 if data_summary:
                     data["training_data_window"] = data_summary
+
+                # Quick training-result snapshot so user sees outcome
+                # before validator's later step kicks off.
+                metrics = data.get("metrics", {}) if isinstance(data, dict) else {}
+                test_sharpe = metrics.get("test_sharpe")
+                overfit_ratio = metrics.get("overfit_ratio")
+                if test_sharpe is not None:
+                    bits = [f"test Sharpe {test_sharpe:.2f}"]
+                    if overfit_ratio is not None:
+                        bits.append(f"overfit {overfit_ratio:.2f}")
+                    await self._narrate(f"Trained {model_type}: {', '.join(bits)}.")
+                else:
+                    await self._narrate(f"Trained {model_type}.")
 
                 return AgentResult(status=AgentStatus.SUCCESS, data=data)
             elif result.status == "timeout":

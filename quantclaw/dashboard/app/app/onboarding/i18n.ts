@@ -9,6 +9,7 @@ interface Translations {
     data: string;
     broker: string;
     watchlist: string;
+    notifications: string;
     launch: string;
   };
 
@@ -19,6 +20,7 @@ interface Translations {
   dataStep: { title: string; subtitle: string };
   brokerStep: { title: string; subtitle: string };
   watchlistStep: { title: string; subtitle: string };
+  notificationStep: { title: string; subtitle: string };
   launchStep: { title: string; subtitle: string };
 
   // Data categories
@@ -57,10 +59,19 @@ interface Translations {
   configured: string;
   skipped: string;
   ready: string;
+  optional: string;
+  saving: string;
   addCustomTicker: string;
   add: string;
   tickersSelected: string;
   changeAnytime: string;
+  telegramBotToken: string;
+  telegramChatId: string;
+  webhookUrl: string;
+  notificationLocalNote: string;
+  notificationTelegramBoth: string;
+  notificationSaveFailed: string;
+  noNotifications: string;
 
   // Review labels
   reviewLanguage: string;
@@ -69,6 +80,7 @@ interface Translations {
   reviewData: string;
   reviewBroker: string;
   reviewWatchlist: string;
+  reviewNotifications: string;
 
   // Broker options
   paperTrading: string;
@@ -92,13 +104,14 @@ interface Translations {
 
 const translations: Record<Lang, Translations> = {
   en: {
-    steps: { language: "Language", model: "Model", search: "Search", data: "Data", broker: "Broker", watchlist: "Watchlist", launch: "Launch" },
+    steps: { language: "Language", model: "Model", search: "Search", data: "Data", broker: "Broker", watchlist: "Watchlist", notifications: "Alerts", launch: "Launch" },
     languageStep: { title: "Choose your language", subtitle: "Select your preferred language for the QuantClaw interface and agent responses." },
     llmStep: { title: "Choose a model provider", subtitle: "QuantClaw uses LLMs to power its 13 trading agents. Select your provider." },
     searchStep: { title: "Search provider", subtitle: "Agents use web search for market research, news analysis, and real-time information gathering." },
     dataStep: { title: "Market data sources", subtitle: "All free sources are enabled by default. Add API keys for premium providers to unlock higher rate limits — QuantClaw will automatically route to the fastest available source." },
     brokerStep: { title: "Connect a broker", subtitle: "Start with paper trading to test strategies risk-free, or connect a live broker." },
     watchlistStep: { title: "Build your watchlist", subtitle: "Select the tickers you want QuantClaw to monitor and trade." },
+    notificationStep: { title: "Alert destinations", subtitle: "Optionally connect Telegram, Discord, or Slack for urgent QuantClaw events." },
     launchStep: { title: "Ready to launch", subtitle: "Review your configuration and start QuantClaw." },
     dataCategories: { all_markets: "All Markets", stocks: "Stocks & ETFs", crypto: "Crypto", forex: "Forex", commodities: "Commodities", economic: "Economic Data", alternative: "Alternative & Sentiment", cn_stocks: "A-Shares", cn_futures: "Futures & Commodities", cn_economic: "Economic Data" },
     llmDescriptions: {
@@ -215,16 +228,26 @@ const translations: Record<Lang, Translations> = {
     configured: "✓ Ready",
     skipped: "Skipped",
     ready: "Ready",
+    optional: "Optional",
+    saving: "Saving...",
     addCustomTicker: "Add custom ticker...",
     add: "Add",
     tickersSelected: "ticker(s) selected",
     changeAnytime: "You can change this anytime in Settings",
+    telegramBotToken: "Bot token",
+    telegramChatId: "Chat ID",
+    webhookUrl: "Webhook URL",
+    notificationLocalNote: "Optional. Credentials are stored locally in quantclaw.yaml and never returned by the API.",
+    notificationTelegramBoth: "Telegram needs both a bot token and chat ID.",
+    notificationSaveFailed: "Failed to save notification settings.",
+    noNotifications: "None",
     reviewLanguage: "Language",
     reviewModel: "Model Provider",
     reviewSearch: "Search Provider",
     reviewData: "Market Data",
     reviewBroker: "Broker",
     reviewWatchlist: "Watchlist",
+    reviewNotifications: "Notifications",
     paperTrading: "Paper Trading",
     paperTradingDesc: "Simulated trading with virtual money — no risk, full functionality",
     alpacaDesc: "Commission-free trading API — supports stocks and crypto",
@@ -240,13 +263,14 @@ const translations: Record<Lang, Translations> = {
     presetBlueChips: "Blue Chips",
   },
   zh: {
-    steps: { language: "语言", model: "模型", search: "搜索", data: "数据", broker: "券商", watchlist: "自选股", launch: "启动" },
+    steps: { language: "语言", model: "模型", search: "搜索", data: "数据", broker: "券商", watchlist: "自选股", notifications: "通知", launch: "启动" },
     languageStep: { title: "选择语言", subtitle: "选择 QuantClaw 界面和 AI 代理回复使用的语言。" },
     llmStep: { title: "选择模型提供商", subtitle: "QuantClaw 使用大语言模型驱动 13 个交易代理，请选择您的提供商。" },
     searchStep: { title: "搜索提供商", subtitle: "代理使用网络搜索进行市场研究、新闻分析和实时信息收集。" },
     dataStep: { title: "行情数据源", subtitle: "所有免费数据源已默认启用。添加付费数据源的 API 密钥可解锁更高的请求频率 — QuantClaw 会自动切换到最快的可用数据源。" },
     brokerStep: { title: "连接券商", subtitle: "从模拟交易开始零风险测试策略，或连接实盘券商。" },
     watchlistStep: { title: "创建自选股", subtitle: "选择您希望 QuantClaw 监控和交易的股票代码。" },
+    notificationStep: { title: "通知目的地", subtitle: "可选连接 Telegram、Discord 或 Slack，用于接收紧急 QuantClaw 事件。" },
     launchStep: { title: "准备启动", subtitle: "确认您的配置并启动 QuantClaw。" },
     dataCategories: { all_markets: "全市场", stocks: "股票与ETF", crypto: "加密货币", forex: "外汇", commodities: "大宗商品", economic: "经济数据", alternative: "另类数据与情绪", cn_stocks: "A股", cn_futures: "期货与大宗商品", cn_economic: "宏观经济" },
     llmDescriptions: {
@@ -363,16 +387,26 @@ const translations: Record<Lang, Translations> = {
     configured: "✓ 就绪",
     skipped: "已跳过",
     ready: "就绪",
+    optional: "可选",
+    saving: "保存中...",
     addCustomTicker: "添加自定义代码...",
     add: "添加",
     tickersSelected: "个代码已选择",
     changeAnytime: "您可以随时在设置中更改",
+    telegramBotToken: "机器人令牌",
+    telegramChatId: "聊天 ID",
+    webhookUrl: "Webhook URL",
+    notificationLocalNote: "可选。凭据保存在本地 quantclaw.yaml 中，API 不会返回这些值。",
+    notificationTelegramBoth: "Telegram 需要机器人令牌和聊天 ID。",
+    notificationSaveFailed: "保存通知设置失败。",
+    noNotifications: "无",
     reviewLanguage: "语言",
     reviewModel: "模型提供商",
     reviewSearch: "搜索提供商",
     reviewData: "行情数据",
     reviewBroker: "券商",
     reviewWatchlist: "自选股",
+    reviewNotifications: "通知",
     paperTrading: "模拟交易",
     paperTradingDesc: "使用虚拟资金的模拟交易 — 零风险，完整功能",
     alpacaDesc: "免佣金交易 API — 支持股票和加密货币",
@@ -388,13 +422,14 @@ const translations: Record<Lang, Translations> = {
     presetBlueChips: "蓝筹股",
   },
   ja: {
-    steps: { language: "言語", model: "モデル", search: "検索", data: "データ", broker: "ブローカー", watchlist: "ウォッチリスト", launch: "起動" },
+    steps: { language: "言語", model: "モデル", search: "検索", data: "データ", broker: "ブローカー", watchlist: "ウォッチリスト", notifications: "通知", launch: "起動" },
     languageStep: { title: "言語を選択", subtitle: "QuantClaw のインターフェースと AI エージェントの応答に使用する言語を選択してください。" },
     llmStep: { title: "モデルプロバイダーを選択", subtitle: "QuantClaw は 13 の取引エージェントに大規模言語モデルを使用します。プロバイダーを選択してください。" },
     searchStep: { title: "検索プロバイダー", subtitle: "エージェントはウェブ検索を使って市場調査、ニュース分析、リアルタイム情報収集を行います。" },
     dataStep: { title: "市場データソース", subtitle: "無料のデータソースはすべてデフォルトで有効です。有料プロバイダーの API キーを追加すると、より高いレート制限が解除されます。QuantClaw は最速のソースに自動ルーティングします。" },
     brokerStep: { title: "ブローカーを接続", subtitle: "ペーパートレードでリスクなく戦略をテストするか、実際のブローカーに接続します。" },
     watchlistStep: { title: "ウォッチリストを作成", subtitle: "QuantClaw で監視・取引したいティッカーを選択してください。" },
+    notificationStep: { title: "通知先", subtitle: "Telegram、Discord、Slack を任意で接続し、重要な QuantClaw イベントを受け取れます。" },
     launchStep: { title: "起動準備完了", subtitle: "設定を確認して QuantClaw を起動します。" },
     dataCategories: { all_markets: "全市場", stocks: "株式・ETF", crypto: "暗号通貨", forex: "外国為替", commodities: "コモディティ", economic: "経済データ", alternative: "オルタナティブ・センチメント", cn_stocks: "A株", cn_futures: "先物・コモディティ", cn_economic: "経済データ" },
     llmDescriptions: {
@@ -511,16 +546,26 @@ const translations: Record<Lang, Translations> = {
     configured: "✓ 準備完了",
     skipped: "スキップ済み",
     ready: "準備完了",
+    optional: "任意",
+    saving: "保存中...",
     addCustomTicker: "カスタムティッカーを追加...",
     add: "追加",
     tickersSelected: "個のティッカーを選択",
     changeAnytime: "設定からいつでも変更できます",
+    telegramBotToken: "Bot トークン",
+    telegramChatId: "チャット ID",
+    webhookUrl: "Webhook URL",
+    notificationLocalNote: "任意です。認証情報はローカルの quantclaw.yaml に保存され、API から返されることはありません。",
+    notificationTelegramBoth: "Telegram には Bot トークンとチャット ID の両方が必要です。",
+    notificationSaveFailed: "通知設定の保存に失敗しました。",
+    noNotifications: "なし",
     reviewLanguage: "言語",
     reviewModel: "モデルプロバイダー",
     reviewSearch: "検索プロバイダー",
     reviewData: "市場データ",
     reviewBroker: "ブローカー",
     reviewWatchlist: "ウォッチリスト",
+    reviewNotifications: "通知",
     paperTrading: "ペーパートレード",
     paperTradingDesc: "仮想資金でのシミュレーション取引 — リスクなし、全機能利用可能",
     alpacaDesc: "手数料無料の取引 API — 株式と暗号通貨に対応",

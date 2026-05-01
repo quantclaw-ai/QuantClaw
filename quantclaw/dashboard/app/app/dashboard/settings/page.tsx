@@ -69,6 +69,13 @@ const translations: Record<Lang, Record<string, string>> = {
     notificationsSaved: "Saved locally. Matching events route through configured channels while QuantClaw is running.",
     local: "Local",
     connected: "Connected",
+    dangerZone: "Danger zone",
+    factoryReset: "Reset everything",
+    factoryResetHelp: "Wipes credentials, agent history, generated strategies, models, logs, and onboarding config — but keeps cached market data. Next launch starts from onboarding.",
+    factoryResetConfirm: "This will erase all credentials, history, strategies, models, and onboarding state. Cached market data is kept. You'll start from onboarding next time. Continue?",
+    factoryResetting: "Resetting…",
+    factoryResetDone: "Reset complete — redirecting…",
+    factoryResetFailed: "Reset failed",
   },
   zh: {
     title: "设置",
@@ -96,6 +103,13 @@ const translations: Record<Lang, Record<string, string>> = {
     notifValue: "未配置",
     local: "本地",
     connected: "已连接",
+    dangerZone: "危险操作",
+    factoryReset: "重置全部",
+    factoryResetHelp: "清除凭证、代理历史、生成的策略、模型、日志以及引导配置；保留已缓存的市场数据。下次启动将从引导开始。",
+    factoryResetConfirm: "这将清除所有凭证、历史记录、策略、模型和引导状态。已缓存的市场数据将保留。下次启动会从引导开始。是否继续？",
+    factoryResetting: "重置中…",
+    factoryResetDone: "重置完成 — 即将跳转…",
+    factoryResetFailed: "重置失败",
   },
   ja: {
     title: "設定",
@@ -123,6 +137,13 @@ const translations: Record<Lang, Record<string, string>> = {
     notifValue: "未設定",
     local: "ローカル",
     connected: "接続済み",
+    dangerZone: "危険な操作",
+    factoryReset: "すべてリセット",
+    factoryResetHelp: "認証情報、エージェント履歴、生成された戦略、モデル、ログ、オンボーディング設定を削除します（市場データのキャッシュは保持）。次回起動時はオンボーディングから始まります。",
+    factoryResetConfirm: "認証情報、履歴、戦略、モデル、オンボーディング状態をすべて削除します。市場データのキャッシュは保持されます。次回起動時はオンボーディングから始まります。続行しますか？",
+    factoryResetting: "リセット中…",
+    factoryResetDone: "リセット完了 — リダイレクトします…",
+    factoryResetFailed: "リセットに失敗しました",
   },
 };
 
@@ -604,24 +625,25 @@ export default function SettingsPage() {
   };
 
   const startOAuth = async (providerId: string) => {
-    // Cancel any in-flight flow for this provider before starting a new
-    // one — otherwise the previous callback server keeps the port bound
-    // and the new bind silently fails.
-    stopOauthPoll(providerId);
-    try { await fetch(`${API}/api/oauth/cancel/${providerId}`, { method: "POST" }); } catch {}
+    // Open a placeholder tab *synchronously* while we still have the
+    // user-gesture activation. Browsers revoke window.open after the
+    // first await — a multi-second backend round-trip would push us
+    // past the transient-activation window and silently popup-block,
+    // which is the symptom that made the button look dead. The /start
+    // endpoint cleans up any prior flow internally, so we no longer
+    // pre-call /cancel here (that extra round-trip wasted gesture time).
+    const authTab = window.open("about:blank", "_blank", "noopener,noreferrer");
 
+    stopOauthPoll(providerId);
     setOauthLoading(providerId);
     setOauthAuthUrl((prev) => ({ ...prev, [providerId]: "" }));
     setOauthError((prev) => ({ ...prev, [providerId]: "" }));
     try {
-      // Backend starts the callback server and returns auth_url immediately.
-      // We open it from here (much faster than the Python launcher and no
-      // ShellExecuteW hangs on Windows). The URL is also shown as a clickable
-      // link in case window.open is blocked by a popup blocker.
       const startRes = await fetch(`${API}/api/oauth/start/${providerId}`, { method: "POST" });
       const startData = await startRes.json();
 
       if (!startData.auth_url) {
+        try { authTab?.close(); } catch { /* ignore */ }
         const msg = startData.error || startData.detail || "Failed to start OAuth — is the backend running?";
         setOauthError((prev) => ({ ...prev, [providerId]: msg }));
         setOauthLoading(null);
@@ -629,7 +651,14 @@ export default function SettingsPage() {
       }
 
       setOauthAuthUrl((prev) => ({ ...prev, [providerId]: startData.auth_url }));
-      try { window.open(startData.auth_url, "_blank", "noopener,noreferrer"); } catch { /* blocked — user can click the link */ }
+      // Redirect the placeholder tab. If popups were blocked, authTab
+      // is null — the manual fallback link below stays clickable.
+      if (authTab && !authTab.closed) {
+        try { authTab.location.href = startData.auth_url; }
+        catch { try { window.open(startData.auth_url, "_blank", "noopener,noreferrer"); } catch { /* fallback link visible */ } }
+      } else {
+        try { window.open(startData.auth_url, "_blank", "noopener,noreferrer"); } catch { /* fallback link visible */ }
+      }
 
       // Poll for callback completion
       const poll = setInterval(async () => {
@@ -667,6 +696,7 @@ export default function SettingsPage() {
         }
       }, 300000);
     } catch {
+      try { authTab?.close(); } catch { /* ignore */ }
       setOauthError((prev) => ({ ...prev, [providerId]: "Network error — is the backend running on port 24120?" }));
       setOauthLoading(null);
     }
@@ -682,6 +712,36 @@ export default function SettingsPage() {
   const disconnectOAuth = async (providerId: string) => {
     await fetch(`${API}/api/oauth/disconnect/${providerId}`, { method: "POST" });
     setOauthStatus((prev) => ({ ...prev, [providerId]: { authenticated: false } }));
+  };
+
+  const [resetState, setResetState] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [resetError, setResetError] = useState("");
+
+  const factoryReset = async () => {
+    if (!window.confirm(t.factoryResetConfirm)) return;
+    setResetState("running");
+    setResetError("");
+    try {
+      const res = await fetch(`${API}/api/factory_reset`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || data.detail || `HTTP ${res.status}`);
+      }
+      // Wipe browser state. The welcome page does this too on cold load,
+      // but doing it here means the redirect doesn't briefly flash the
+      // dashboard reading stale provider/model from localStorage.
+      for (const key of Object.keys(localStorage)) {
+        if (key.startsWith("quantclaw_")) localStorage.removeItem(key);
+      }
+      setResetState("done");
+      // Hard reload to "/" so every cached state in any open tab is gone
+      // and the welcome page hits /api/welcome fresh — its onboarded:false
+      // response keeps the user on the language picker, then onboarding.
+      setTimeout(() => { window.location.href = "/"; }, 600);
+    } catch (e) {
+      setResetState("error");
+      setResetError(e instanceof Error ? e.message : "Unexpected error");
+    }
   };
 
   const currentProviderConfig = PROVIDERS.find((p) => p.id === activeProvider);
@@ -1023,6 +1083,28 @@ export default function SettingsPage() {
 
         {/* Notifications */}
         <NotificationsSection t={t} />
+
+        {/* Danger zone — factory reset */}
+        <div className="card-cyber p-5 border-claw/30">
+          <h3 className="font-medium mb-2 text-claw-light">{t.dangerZone}</h3>
+          <p className="text-xs text-muted mb-4 leading-relaxed">{t.factoryResetHelp}</p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={factoryReset}
+              disabled={resetState === "running" || resetState === "done"}
+              className="px-4 py-2 rounded-lg border border-claw/40 bg-claw/10 text-claw-light text-sm font-medium hover:bg-claw/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {resetState === "running" ? t.factoryResetting
+                : resetState === "done" ? t.factoryResetDone
+                : t.factoryReset}
+            </button>
+            {resetState === "error" && (
+              <span className="text-xs text-claw-light font-mono">
+                {t.factoryResetFailed}{resetError ? `: ${resetError}` : ""}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );

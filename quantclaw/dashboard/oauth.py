@@ -30,6 +30,13 @@ class _ReusableHTTPServer(HTTPServer):
 
     allow_reuse_address = True
 
+
+# Mirrors Codex CLI's bind-retry behavior: when a previous login server
+# (ours or another tool's, e.g. Codex CLI itself) is still listening,
+# politely ask it to free the port via /cancel rather than failing.
+_BIND_RETRY_ATTEMPTS = 10
+_BIND_RETRY_DELAY_S = 0.2
+
 CREDENTIALS_PATH = Path("data/oauth_credentials.json")
 
 def _b64url(data: bytes) -> str:
@@ -102,17 +109,50 @@ _active_servers: dict[str, HTTPServer] = {}
 _active_threads: dict[str, Thread] = {}
 
 
+_SUCCESS_HTML = (
+    b"<!doctype html><html><body style=\"background:#030712;color:#f59e0b;"
+    b"display:flex;align-items:center;justify-content:center;height:100vh;"
+    b"font-family:system-ui;flex-direction:column\">"
+    b"<h1 style=\"font-size:2rem\">&#10003; Authorization successful</h1>"
+    b"<p style=\"color:#9ca3af\">You can close this window and return to QuantClaw.</p>"
+    b"<script>setTimeout(()=>window.close(),3000)</script>"
+    b"</body></html>"
+)
+
+
 class _OAuthCallbackHandler(BaseHTTPRequestHandler):
-    """Handles the OAuth redirect callback."""
+    """Handles the OAuth redirect callback.
+
+    Forces ``Connection: close`` on every response. Python's
+    ``BaseHTTPRequestHandler`` defaults to keep-alive on HTTP/1.1, which
+    parks the socket after the success page paints — our serve loop
+    then blocks on the next ``handle_request`` for the full timeout, and
+    a back-to-back retry tries to bind a port whose old socket is still
+    in use. Codex CLI's ``send_response_with_disconnect`` solves this
+    the same way.
+
+    Also serves ``GET /cancel`` so a sibling instance (another QuantClaw
+    run, or Codex CLI itself) can ask us to free the port before its
+    own bind attempt.
+    """
 
     provider_id: str = ""
     code_verifier: str = ""
 
     def do_GET(self):
         parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
         qs = parse_qs(parsed.query)
-        code = qs.get("code", [None])[0]
 
+        if path == "/cancel":
+            # Mark canceled so the serve loop exits on its next tick,
+            # closing the socket — the caller then retries its bind.
+            _auth_state[self.provider_id] = {"status": "canceled"}
+            _active_servers.pop(self.provider_id, None)
+            self._respond(200, b"ok\n", "text/plain; charset=utf-8")
+            return
+
+        code = qs.get("code", [None])[0]
         if code:
             _auth_state[self.provider_id] = {
                 "code": code,
@@ -120,26 +160,60 @@ class _OAuthCallbackHandler(BaseHTTPRequestHandler):
                 "status": "code_received",
                 "timestamp": time.time(),
             }
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self.end_headers()
-            self.wfile.write(b"""
-            <html><body style="background:#030712;color:#f59e0b;display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui;flex-direction:column">
-            <h1 style="font-size:2rem">&#10003; Authorization successful</h1>
-            <p style="color:#9ca3af">You can close this window and return to QuantClaw.</p>
-            <script>setTimeout(()=>window.close(),3000)</script>
-            </body></html>
-            """)
+            self._respond(200, _SUCCESS_HTML, "text/html; charset=utf-8")
         else:
             error = qs.get("error", ["unknown"])[0]
             _auth_state[self.provider_id] = {"status": "error", "error": error}
-            self.send_response(400)
-            self.send_header("Content-Type", "text/html")
-            self.end_headers()
-            self.wfile.write(f"<html><body>Error: {error}</body></html>".encode())
+            body = f"<html><body>Error: {error}</body></html>".encode()
+            self._respond(400, body, "text/html; charset=utf-8")
+
+    def _respond(self, status: int, body: bytes, content_type: str) -> None:
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+            self.wfile.flush()
+        except Exception:
+            pass
 
     def log_message(self, format, *args):
         pass  # Suppress server logs
+
+
+def _send_cancel_to_port(port: int) -> None:
+    """Best-effort GET /cancel against ``127.0.0.1:port``.
+
+    If a prior login server (ours or another tool's) is listening, this
+    asks it to release the port. Errors are ignored — the worst case is
+    that the next bind attempt also fails and we retry.
+    """
+    try:
+        with httpx.Client(timeout=0.5) as client:
+            client.get(f"http://127.0.0.1:{port}/cancel")
+    except Exception:
+        pass
+
+
+def _bind_with_cancel_retry(port: int, handler) -> Optional[HTTPServer]:
+    """Bind 127.0.0.1:port, asking the incumbent to /cancel between tries.
+
+    Returns the server on success, or None if every attempt failed.
+    Mirrors Codex CLI's ``send_cancel_request`` + 10× × 200ms backoff.
+    """
+    last_err: Optional[OSError] = None
+    for attempt in range(_BIND_RETRY_ATTEMPTS):
+        try:
+            return _ReusableHTTPServer(("127.0.0.1", port), handler)
+        except OSError as e:
+            last_err = e
+            _send_cancel_to_port(port)
+            time.sleep(_BIND_RETRY_DELAY_S)
+    if last_err is not None:
+        logger.warning("OAuth bind on :%d failed after retries: %s", port, last_err)
+    return None
 
 
 def _stop_callback_server(provider_id: str) -> None:
@@ -155,7 +229,11 @@ def _stop_callback_server(provider_id: str) -> None:
     _active_servers.pop(provider_id, None)
     thread = _active_threads.pop(provider_id, None)
     if thread is not None and thread.is_alive():
-        thread.join(timeout=3.0)
+        # 1.5s is enough: the serve loop polls every 1s and the
+        # Connection:close handler returns immediately. Longer joins
+        # blow past the browser's ~5s transient-activation window for
+        # window.open in the frontend.
+        thread.join(timeout=1.5)
 
 
 def start_oauth_flow(provider_id: str) -> dict:
@@ -197,19 +275,21 @@ def start_oauth_flow(provider_id: str) -> dict:
 
     # Try to bind synchronously so a port-in-use failure surfaces in the
     # HTTP response instead of dying silently in the background thread.
+    # If the port is held by another login server (Codex CLI, a stale
+    # QuantClaw instance), ``_bind_with_cancel_retry`` asks it to /cancel
+    # and retries — same behavior as Codex CLI's own login flow.
     handler = type(
         f"Handler_{provider_id}",
         (_OAuthCallbackHandler,),
         {"provider_id": provider_id, "code_verifier": code_verifier},
     )
-    try:
-        server = _ReusableHTTPServer(("127.0.0.1", config["callback_port"]), handler)
-    except OSError as e:
+    server = _bind_with_cancel_retry(config["callback_port"], handler)
+    if server is None:
         msg = (
             f"Could not bind OAuth callback server on port "
-            f"{config['callback_port']}: {e}. Another process (a previous "
-            f"QuantClaw run, Codex CLI, or Claude CLI) may be holding the "
-            f"port — close it and try again."
+            f"{config['callback_port']} after {_BIND_RETRY_ATTEMPTS} attempts. "
+            f"Another process is holding it and didn't yield to /cancel — "
+            f"close Codex CLI / Claude CLI / any prior QuantClaw run and try again."
         )
         logger.error(msg)
         _auth_state[provider_id] = {"status": "error", "error": msg}
@@ -229,7 +309,7 @@ def start_oauth_flow(provider_id: str) -> dict:
                 if _active_servers.get(provider_id) is not server:
                     break  # we were superseded or canceled
                 state_now = _auth_state.get(provider_id, {}).get("status")
-                if state_now in ("code_received", "completed", "error"):
+                if state_now in ("code_received", "completed", "error", "canceled"):
                     break
                 server.handle_request()
         except Exception as exc:

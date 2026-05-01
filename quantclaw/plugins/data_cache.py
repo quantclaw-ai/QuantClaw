@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -34,6 +35,42 @@ STALE_AFTER_HOURS = 12          # mutable-tail refresh window
 HISTORY_FREEZE_DAYS = 7         # data older than this is immutable
 
 _DATE_FMT = "%Y-%m-%d"
+
+# Legacy cache files from an older layout that hashed the date range
+# into the filename, e.g. ``AAPL_1970-01-01_2026-04-19_1d_5d9bd1208cb5.parquet``.
+# The current layout writes one file per (symbol, freq) — these orphaned
+# files are never read but linger on disk consuming space. A startup
+# pass uses this regex to identify and delete them.
+_LEGACY_FILENAME_RE = re.compile(
+    r"^.+_\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}_.+\.parquet$"
+)
+
+
+def prune_legacy_cache_files(cache_dir: Path = CACHE_DIR) -> int:
+    """Delete orphan parquet files from the pre-merge cache layout.
+
+    Returns the count of files removed. Safe to call repeatedly: once
+    the legacy files are gone, subsequent calls are no-ops. Errors on
+    individual files are swallowed (logged at debug) so a single
+    permission issue or locked file can't abort the whole sweep.
+    """
+    if not cache_dir.exists():
+        return 0
+    removed = 0
+    for freq_dir in cache_dir.iterdir():
+        if not freq_dir.is_dir():
+            continue
+        for path in freq_dir.glob("*.parquet"):
+            if not _LEGACY_FILENAME_RE.match(path.name):
+                continue
+            try:
+                path.unlink()
+                removed += 1
+            except OSError as exc:
+                logger.debug("Could not prune legacy cache file %s: %s", path, exc)
+    if removed:
+        logger.info("Pruned %d legacy cache file(s) from %s", removed, cache_dir)
+    return removed
 
 
 def _safe_symbol(symbol: str) -> str:

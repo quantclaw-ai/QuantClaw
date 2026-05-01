@@ -4,7 +4,7 @@
 class Strategy:
     name = "SPY Benchmark"
     description = "100% SPY buy-and-hold. This is the baseline."
-    difficulty = "baseline"
+    style = "baseline"
     universe = ["SPY"]
     frequency = "monthly"
 

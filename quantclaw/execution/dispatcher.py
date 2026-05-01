@@ -112,7 +112,12 @@ class Dispatcher:
                     })
 
                 step.status = StepStatus.RUNNING
-                step_timeout = self._pool._config.get("sandbox", {}).get("timeout", 60) * 3  # 3x sandbox timeout
+                # 10× sandbox timeout (was 3×). Researcher's LLM tool-use
+                # loop legitimately needs minutes when ChatGPT backend is
+                # slow + multiple tool rounds + retries. With 3× = 180s
+                # every researcher step was timing out as a matter of
+                # course, dragging cycles into "abandon" verdicts.
+                step_timeout = self._pool._config.get("sandbox", {}).get("timeout", 60) * 10
                 try:
                     result = await asyncio.wait_for(
                         self.dispatch(step.agent, task),

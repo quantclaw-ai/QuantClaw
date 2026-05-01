@@ -21,6 +21,17 @@ env/
 data/
 quantclaw.yaml
 .env
+.env.*
+!.env.example
+oauth_credentials.json
+**/oauth_credentials.json
+*_credentials.json
+*.pem
+*.p12
+*.pfx
+*.key
+*.sqlite
+*.db
 strategies/
 
 # Node

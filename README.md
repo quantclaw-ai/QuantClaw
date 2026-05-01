@@ -48,9 +48,12 @@ Open [http://localhost:24121](http://localhost:24121) in your browser.
 4. **You're live** with a chat-first trading interface powered by AI agents
 
 ```bash
-quantclaw start     # Start all services
-quantclaw stop      # Stop all services
+quantclaw start     # Start all services (backend, sidecar, dashboard)
+quantclaw stop      # Stop all services (kills by PID + sweeps owned ports)
 quantclaw status    # Check what's running
+quantclaw doctor    # Health check — add --repair to auto-fix
+quantclaw reset     # Wipe config, DB, OAuth, models, strategies; keeps market cache
+quantclaw help      # All commands
 ```
 
 ## Model Providers
@@ -126,6 +129,13 @@ Dark-mode, multilingual (English / Chinese / Japanese) dashboard with:
 
 Set up Telegram, Discord, and Slack during onboarding or later from **Dashboard -> Settings -> Notifications**. Credentials are written to your local `quantclaw.yaml`, which is ignored by git and npm packaging. Event routing rules live in `quantclaw/config/default.yaml` under `notification_routes`.
 
+### Reset to a clean state
+
+When you want to start over from onboarding — new provider, fresh credentials, no agent history:
+
+- **Dashboard** — Settings tab → Danger zone → **Reset everything**. Confirms, wipes server-side state (`quantclaw.yaml`, OAuth credentials, agent DB, generated strategies, models, logs), clears browser localStorage, and redirects to the welcome screen.
+- **CLI** — `quantclaw reset` does the same wipe from the terminal (also stops running services first). Cached market data (`data/cache/`, `data/kroness.db`) is preserved by default — re-downloading hours of OHLCV is wasteful, and the cache is immutable per date range anyway.
+
 ## Strategy Templates
 
 Write strategies as simple Python files:
@@ -149,7 +159,14 @@ class Strategy:
         return {s: 1/3 for s in ranked}
 ```
 
-55 templates included: momentum, mean reversion, pairs trading, risk parity, sector rotation, ML signal, options wheel, and more.
+12 templates included across four families:
+
+- **Baselines** — equal weight, random picks, SPY benchmark
+- **Classic** — buy-and-hold, momentum, mean reversion, moving-average crossover
+- **Portfolio** — pairs trading, risk parity, sector rotation
+- **Machine learning / options** — ML signal, options wheel
+
+Each template is a single Python file with `signals()` and `allocate()` methods. Drop new strategies into `data/strategies/` and they appear automatically in the Strategy browser.
 
 ## Architecture
 

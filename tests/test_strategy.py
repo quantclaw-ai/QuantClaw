@@ -34,6 +34,5 @@ def test_load_strategy_file_not_found():
 
 def test_list_templates():
     templates = list_templates()
-    # At minimum baselines should exist after Phase 5
-    # For now just verify it returns a list without error
+    # Verify template discovery returns a list without relying on user levels.
     assert isinstance(templates, list)

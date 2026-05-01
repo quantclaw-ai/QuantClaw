@@ -4,7 +4,7 @@
 class Strategy:
     name = "RSI Mean Reversion"
     description = "Buy when RSI drops below 30, sell when RSI rises above 70."
-    difficulty = "beginner"
+    style = "classic"
     universe = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "JPM", "V", "UNH"]
     frequency = "daily"
     rsi_period = 14

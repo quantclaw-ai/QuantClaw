@@ -4,7 +4,7 @@
 class Strategy:
     name = "Equal Weight"
     description = "Equal-weight all stocks in universe. Naive diversification baseline."
-    difficulty = "baseline"
+    style = "baseline"
     universe = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "JPM", "V", "UNH"]
     frequency = "monthly"
 

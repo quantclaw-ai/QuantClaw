@@ -24,7 +24,7 @@ def load_strategy(path: str):
 def list_templates(category: str = None) -> list[dict]:
     template_dir = Path(__file__).parent / "templates"
     templates = []
-    categories = [category] if category else ["beginner", "intermediate", "advanced", "options", "baselines"]
+    categories = [category] if category else ["baselines", "classic", "portfolio", "machine_learning", "options"]
     for cat in categories:
         cat_dir = template_dir / cat
         if not cat_dir.exists():

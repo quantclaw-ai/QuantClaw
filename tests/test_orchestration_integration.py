@@ -141,7 +141,7 @@ def test_risk_guardrails_enforced(setup):
     # Drawdown exceeded
     assert not guardrails.check_drawdown(-0.12)
 
-    # Trust level blocks live trading at Observer
+    # Trust policy blocks live trading until explicitly elevated.
     assert not trust.can_live_trade()
     asyncio.run(trust.upgrade(TrustLevel.PAPER_TRADER))
     assert not trust.can_live_trade()

@@ -5,7 +5,7 @@ import random
 class Strategy:
     name = "Random Picks"
     description = "Randomly select stocks. Your strategy should beat this."
-    difficulty = "baseline"
+    style = "baseline"
     universe = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "JPM", "V", "UNH"]
     frequency = "weekly"
     pick_n = 3

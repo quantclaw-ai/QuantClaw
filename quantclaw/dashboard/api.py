@@ -109,6 +109,18 @@ async def lifespan(app: FastAPI):
     _pm.discover()
     _rebuild_notification_runtime()
 
+    # One-time prune of orphan files from the pre-merge cache layout
+    # (filenames like ``AAPL_1970-01-01_2026-04-19_1d_<hash>.parquet``).
+    # The current cache writes one file per (symbol, freq); the legacy
+    # files are never read but eat disk. Sweeping at startup keeps the
+    # cleanup invisible to users — if a previous run already pruned
+    # them, this returns 0 instantly.
+    try:
+        from quantclaw.plugins.data_cache import prune_legacy_cache_files
+        await asyncio.to_thread(prune_legacy_cache_files)
+    except Exception:
+        logger.exception("Legacy cache prune failed — continuing startup")
+
     # ── Orchestration setup ──
     from quantclaw.orchestration.playbook import Playbook
     from quantclaw.orchestration.trust import TrustManager
@@ -579,6 +591,61 @@ async def reset_workings(request: Request) -> dict:
         pass
 
     return {"status": "reset", "cleared": cleared}
+
+
+# ── Factory reset ──
+@app.post("/api/factory_reset")
+async def factory_reset(request: Request) -> dict:
+    """Wipe everything ``/api/reset`` clears, plus credentials and the
+    onboarding marker, so the next dashboard load lands on the welcome
+    screen and the user has to redo onboarding from zero.
+
+    ALSO CLEARED (beyond ``/api/reset``):
+      * ``quantclaw.yaml`` — its existence is what ``/api/welcome`` uses
+        to gate onboarding, so deleting it forces the redirect.
+      * ``data/oauth_credentials.json`` — provider OAuth tokens.
+
+    Still preserved (intentional, to avoid hours of re-download):
+      * ``data/cache/`` — ingested OHLCV.
+      * ``data/kroness.db`` — raw market data store.
+
+    The frontend is responsible for clearing its own ``localStorage`` —
+    we can't reach the browser from here.
+    """
+    # Run the existing reset first (in-flight cancel, playbook, DB tables,
+    # strategies, models, logs). It returns a dict we'll merge into ours.
+    base = await reset_workings(request)
+    cleared = dict(base.get("cleared", {})) if isinstance(base, dict) else {}
+
+    yaml_path = Path("quantclaw.yaml")
+    try:
+        if yaml_path.exists():
+            yaml_path.unlink()
+            cleared["onboarding_config"] = "removed"
+        else:
+            cleared["onboarding_config"] = "absent"
+    except OSError as exc:
+        cleared["onboarding_config_error"] = str(exc)
+
+    creds_path = Path("data/oauth_credentials.json")
+    try:
+        if creds_path.exists():
+            creds_path.unlink()
+            cleared["oauth_credentials"] = "removed"
+        else:
+            cleared["oauth_credentials"] = "absent"
+    except OSError as exc:
+        cleared["oauth_credentials_error"] = str(exc)
+
+    # Drop in-memory OAuth state too so a stale flow doesn't survive
+    # the wipe (the dict lives in the oauth module's globals).
+    try:
+        from quantclaw.dashboard import oauth as _oauth_mod
+        _oauth_mod._auth_state.clear()
+    except Exception:
+        pass
+
+    return {"status": "factory_reset", "cleared": cleared}
 
 
 # ── Strategies ──

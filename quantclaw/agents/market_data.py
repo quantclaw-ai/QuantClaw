@@ -12,7 +12,12 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 BASE_OHLCV_COLUMNS = ("open", "high", "low", "close", "volume")
-DEFAULT_HISTORY_START = "1970-01-01"
+# Use a recent default so callers that don't specify ``start`` still get
+# a useful backtest window. 1970-01-01 was previously used, which made
+# yfinance log "no data before listing date" warnings for every modern
+# ticker (AAPL listed 1980, GOOG 2004, etc.) — pure noise that masked
+# actual data-fetch failures in the logs.
+DEFAULT_HISTORY_START = "2015-01-01"
 TIME_SERIES_FIELD_MODE = "time_series"
 SNAPSHOT_FIELD_MODE = "snapshot"
 _OHLCV_PLUGIN_NAMES = (

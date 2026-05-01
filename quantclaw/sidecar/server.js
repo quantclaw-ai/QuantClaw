@@ -10,7 +10,6 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 
 const PORT = 24122;
-const HOST = "127.0.0.1";
 
 // ── Load OAuth credentials ──
 
@@ -55,24 +54,17 @@ function formatProviderError(provider, model, err) {
 
 // ── OpenAI (Codex/subscription via chatgpt.com) ──
 
-// The Codex backend (chatgpt.com/backend-api/codex) only accepts certain
-// OpenAI models — its own gpt-5.x family, gpt-4.1, the o-series reasoning
-// models, and explicit codex-* names. It rejects gpt-4o, gpt-3.5, gpt-4-turbo
-// etc. with 400 (no body). Resolver allows any future Codex-compatible name
-// (gpt-5.5, gpt-6, gpt-10, o4, …) while downgrading non-Codex names to the
-// default so a misconfigured selection doesn't blow up the user's chat.
+// Models the Codex backend accepts. Standard OpenAI ids like "gpt-4o" are
+// NOT valid here — the Codex endpoint speaks its own model namespace and
+// returns 400 with an empty body when given an unknown name. So we map any
+// non-Codex request down to a sensible default.
+const CODEX_MODEL_PREFIXES = ["gpt-5", "gpt-4.1", "gpt-4o-codex", "o1", "o3", "codex"];
 const CODEX_DEFAULT_MODEL = "gpt-5.4";
 
 function resolveCodexModel(requested) {
   if (!requested) return CODEX_DEFAULT_MODEL;
-  const name = String(requested).toLowerCase();
-  // Explicit codex-* (e.g. gpt-4o-codex, codex-davinci) — always pass.
-  if (/codex/.test(name)) return requested;
-  // o-series reasoning models (o1, o3-mini, o4, …).
-  if (/^o\d/.test(name)) return requested;
-  // gpt-5+ family, two-digit gpt-NN, or gpt-4.1 specifically. Excludes
-  // gpt-4o, gpt-4-turbo, gpt-3.5 by not matching their prefixes.
-  if (/^gpt-(?:[5-9]|\d{2}|4\.1)/.test(name)) return requested;
+  const lower = String(requested).toLowerCase();
+  if (CODEX_MODEL_PREFIXES.some((p) => lower.startsWith(p))) return requested;
   return CODEX_DEFAULT_MODEL;
 }
 
@@ -90,12 +82,18 @@ async function handleOpenAI(req, res) {
       payload?.["https://api.openai.com/auth"]?.chatgpt_account_id || "";
   } catch {}
 
+  // ``originator: "codex_cli_rs"`` matches the official Codex CLI's
+  // identifier — chatgpt.com/backend-api/codex returns 401 with empty
+  // body when the originator isn't recognized as a Codex client. The
+  // value is what OpenAI's own Rust CLI sends; spoofing it lets a Plus
+  // user's OAuth token actually authenticate against this endpoint.
+  // If you change this back to "quantclaw" expect 401s on every call.
   const client = new OpenAI({
     apiKey: access_token,
     baseURL: "https://chatgpt.com/backend-api/codex",
     defaultHeaders: {
       "chatgpt-account-id": accountId,
-      originator: "quantclaw",
+      originator: "codex_cli_rs",
       "OpenAI-Beta": "responses=experimental",
     },
   });
@@ -310,6 +308,6 @@ app.get("/health", (req, res) => {
   });
 });
 
-app.listen(PORT, HOST, () => {
-  console.log(`QuantClaw sidecar running on http://${HOST}:${PORT}`);
+app.listen(PORT, () => {
+  console.log(`QuantClaw sidecar running on http://localhost:${PORT}`);
 });

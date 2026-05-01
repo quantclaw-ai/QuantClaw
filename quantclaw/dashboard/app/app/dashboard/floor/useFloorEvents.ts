@@ -424,9 +424,54 @@ export function useFloorEvents(
     handleEvent(event);
   }, [getEventKey, handleEvent, normalizeEvent, rememberEvent]);
 
+  // Persist last-seen timestamp across mounts so navigating away and
+  // back replays the events that arrived while the floor was unmounted.
+  // Without this, agent state (busy/complete) appears to "stop" on
+  // return because the WebSocket only delivers events from now forward.
+  const persistLastTimestamp = useCallback((ts: string | undefined) => {
+    if (!ts) return;
+    // Compare against localStorage rather than the ref, because
+    // processEvent already advanced the ref before we got here.
+    try {
+      const stored = localStorage.getItem("quantclaw_floor_last_event_ts") || "";
+      if (ts > stored) localStorage.setItem("quantclaw_floor_last_event_ts", ts);
+    } catch { /* ignore */ }
+  }, []);
+
+  const processEventTracked = useCallback((rawEvent: FloorEvent) => {
+    processEvent(rawEvent);
+    persistLastTimestamp(rawEvent.timestamp);
+  }, [processEvent, persistLastTimestamp]);
+
   // WebSocket connection
   useEffect(() => {
     let reconnectTimeout: ReturnType<typeof setTimeout>;
+    let cancelled = false;
+
+    // Hydrate last-seen timestamp from storage so the catch-up fetch
+    // covers the actual gap (initial render of useState is "" otherwise).
+    try {
+      const stored = localStorage.getItem("quantclaw_floor_last_event_ts");
+      if (stored && stored > lastTimestampRef.current) {
+        lastTimestampRef.current = stored;
+      }
+    } catch { /* ignore */ }
+
+    async function replayMissed() {
+      if (!lastTimestampRef.current) return;
+      try {
+        const params = new URLSearchParams({
+          since: lastTimestampRef.current,
+          limit: "500",
+        });
+        const resp = await fetch(`${POLL_URL}?${params.toString()}`);
+        const data = await resp.json();
+        if (cancelled) return;
+        for (const event of data.events || []) {
+          processEventTracked(event as FloorEvent);
+        }
+      } catch { /* offline ok */ }
+    }
 
     function connect() {
       try {
@@ -436,7 +481,7 @@ export function useFloorEvents(
         ws.onmessage = (e) => {
           try {
             const event = JSON.parse(e.data) as FloorEvent;
-            processEvent(event);
+            processEventTracked(event);
           } catch {}
         };
 
@@ -453,7 +498,7 @@ export function useFloorEvents(
                 const resp = await fetch(`${POLL_URL}?${params.toString()}`);
                 const data = await resp.json();
                 for (const event of data.events || []) {
-                  processEvent(event);
+                  processEventTracked(event);
                 }
               } catch {}
             }, POLL_INTERVAL);
@@ -474,9 +519,10 @@ export function useFloorEvents(
       }
     }
 
-    connect();
+    void replayMissed().then(() => { if (!cancelled) connect(); });
 
     return () => {
+      cancelled = true;
       clearTimeout(reconnectTimeout);
       if (wsRef.current) {
         wsRef.current.close();
@@ -485,7 +531,7 @@ export function useFloorEvents(
         clearInterval(pollRef.current);
       }
     };
-  }, [processEvent]);
+  }, [processEventTracked]);
 
   const mergedAgents = initialAgents.length > 0 ? mergeAgents(initialAgents, agents) : agents;
 

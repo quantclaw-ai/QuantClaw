@@ -71,6 +71,32 @@ class BaseAgent(ABC):
     async def on_failure(self, error: str) -> None:
         pass
 
+    async def _narrate(self, message: str) -> None:
+        """Emit a progress chat narrative attributed to this agent.
+
+        Lets subclasses post short status updates between task start
+        and completion ("fetching 8 symbols", "generation 2 of 3",
+        etc.) so the user sees movement during long-running work
+        instead of staring at silence between dispatch and result.
+
+        Keep messages terse — multi-minute steps shouldn't emit more
+        than a handful of these or the chat becomes spam. Truncated
+        and silent on bus failure so narration never aborts a step.
+        """
+        if not self._bus:
+            return
+        text = (message or "").strip()
+        if not text:
+            return
+        try:
+            await self._bus.publish(Event(
+                type=EventType.CHAT_NARRATIVE,
+                payload={"message": text[:240], "role": self.name},
+                source_agent=self.name,
+            ))
+        except Exception:
+            pass
+
     async def run(self, task: dict) -> AgentResult:
         await self._bus.publish(Event(
             type=EventType.AGENT_TASK_STARTED,

@@ -19,8 +19,6 @@ from quantclaw.execution.dispatcher import Dispatcher
 from quantclaw.execution.plan import Plan, PlanStep, PlanStatus, StepStatus
 from quantclaw.execution.planner import Planner
 from quantclaw.execution.router import LLMRouter
-from quantclaw.orchestration.diagnostic_router import DiagnosticRouter
-from quantclaw.orchestration.diagnostics import AnomalyDetector
 
 
 # Known workflow types the Scheduler can draw from
@@ -79,11 +77,6 @@ class OODALoop:
         self._campaign_manager = CampaignManager(playbook, config)
         self._campaign: ProfitCampaign | None = None
         self._deployment_allocator = DeploymentAllocator(playbook, config)
-
-        # Diagnostic feedback loop
-        self._diagnostic_router = DiagnosticRouter(dispatcher)
-        self._anomaly_detector = AnomalyDetector()
-        self._prior_evaluation_sharpe: dict[str, float] = {}
 
         # Scaffolding experiment flags
         self._skip_templates = False
@@ -216,6 +209,23 @@ class OODALoop:
                 },
                 source_agent="scheduler",
             ))
+
+    async def _narrate_phase(self, message: str) -> None:
+        """Emit a CHAT_NARRATIVE for a cycle phase boundary.
+
+        Lightweight wrapper around the bus publish — exists so phase
+        announcements stay consistent and so we can trace/silence them
+        in one place if narratives become noisy.
+        """
+        try:
+            await self._bus.publish(Event(
+                type=EventType.CHAT_NARRATIVE,
+                payload={"message": message, "role": "scheduler"},
+                source_agent="scheduler",
+            ))
+        except Exception:
+            # Never let a narration emit failure abort the cycle.
+            pass
 
     @staticmethod
     async def restore_goal(playbook: Playbook) -> str:
@@ -581,89 +591,6 @@ class OODALoop:
         evaluation["percentile"] = percentile
         evaluation["best_result"] = best_result
 
-        # NEW: Anomaly detection and diagnostic feedback
-        import logging
-        logger = logging.getLogger(__name__)
-
-        anomalies = []
-
-        # Detect validation anomalies
-        anomalies.extend(self._anomaly_detector.detect_validation_anomalies(
-            evaluation=evaluation,
-            prior_sharpe=self._prior_evaluation_sharpe.get("test_sharpe"),
-        ))
-
-        # Detect execution anomalies
-        anomalies.extend(self._anomaly_detector.detect_execution_anomalies(summary))
-
-        # Detect portfolio/campaign anomalies
-        if self._campaign:
-            campaign_dict = self._campaign.to_dict()
-            anomalies.extend(self._anomaly_detector.detect_portfolio_anomalies(campaign_dict))
-
-        # Get top anomalies by severity
-        top_anomalies = self._anomaly_detector.get_top_anomalies(anomalies, max_count=3)
-
-        # Invoke diagnostic agents
-        diagnostic_findings = {}
-        if top_anomalies:
-            logger.info(f"Detected {len(top_anomalies)} anomalies, invoking diagnostics...")
-
-            for anomaly in top_anomalies:
-                logger.info(f"  - {anomaly.name} ({anomaly.severity}): {anomaly.description}")
-
-                # Build evaluation context for diagnostic agent
-                eval_context = {
-                    "test_sharpe": best_result.get("sharpe", 0),
-                    "held_out_sharpe": best_result.get("held_out_sharpe", 0),
-                    "overfit_ratio": best_result.get("overfit_ratio", 1.0),
-                    "iteration": iteration,
-                    "summary": summary,
-                    "campaign": self._campaign.to_dict() if self._campaign else None,
-                }
-
-                # Invoke diagnostic router
-                try:
-                    diag_result = await self._diagnostic_router.route_anomaly(anomaly, eval_context)
-
-                    if diag_result.status == AgentStatus.SUCCESS:
-                        diagnostic_findings[anomaly.name] = diag_result.data
-                        logger.info(f"    Finding: {diag_result.data.get('summary', 'completed')}")
-                    else:
-                        logger.warning(f"    Diagnostic failed: {diag_result.data}")
-                except Exception as e:
-                    logger.exception(f"Diagnostic invocation failed for {anomaly.name}: {e}")
-
-        # Update evaluation with diagnostic findings
-        if "diagnostics" not in evaluation:
-            evaluation["diagnostics"] = {}
-        evaluation["diagnostics"]["anomalies"] = [a.name for a in top_anomalies]
-        evaluation["diagnostics"]["findings"] = diagnostic_findings
-
-        # Adjust verdict based on critical findings
-        for anomaly in top_anomalies:
-            if anomaly.severity == "critical":
-                findings = diagnostic_findings.get(anomaly.name, {})
-                root_cause = findings.get("root_cause", "").lower()
-
-                if "executor" in root_cause or "deployment" in root_cause:
-                    evaluation["verdict"] = "abandon"
-                    evaluation["reasoning"] = (
-                        f"Executor problem detected: {findings.get('root_cause', 'unknown')}. "
-                        "Cannot continue paper trading until fixed."
-                    )
-                    logger.warning(f"Verdict adjusted to abandon due to executor issue")
-                    break
-                elif "data_leakage" in root_cause or "leakage" in root_cause:
-                    evaluation["verdict"] = "abandon"
-                    evaluation["reasoning"] = f"Data leakage detected. Strategy is invalid."
-                    logger.warning(f"Verdict adjusted to abandon due to data leakage")
-                    break
-
-        # Track Sharpe for next iteration
-        self._prior_evaluation_sharpe["test_sharpe"] = best_result.get("sharpe", 0)
-        self._prior_evaluation_sharpe["held_out_sharpe"] = best_result.get("held_out_sharpe", 0)
-
         # Emit evaluation event
         await self._bus.publish(Event(
             type=EventType.ORCHESTRATION_EVALUATION,
@@ -959,6 +886,14 @@ class OODALoop:
         best_evaluation = None
 
         for iteration in range(1, max_iterations + 1):
+            # Phase narratives — without these, the chat goes silent for
+            # 10-30s during decide() (LLM Planner call) and act() (agent
+            # dispatch), making the whole orchestration feel hung. Each
+            # one is a single _bus.publish, no LLM call.
+            await self._narrate_phase(
+                f"Iteration {iteration}/{max_iterations}: orienting on observations…"
+            )
+
             # Orient
             orientation = await self.orient(state)
 
@@ -968,18 +903,37 @@ class OODALoop:
             orientation["exploration_mode"] = exploration_mode
             orientation["exploration_temp"] = exploration_temp
 
+            await self._narrate_phase("Planning the next steps…")
+
             # Decide
             plan = await self.decide(orientation)
             if plan is None:
+                await self._narrate_phase("Planner returned no steps — ending iteration.")
                 break
 
             if plan and plan.contract:
                 self._current_contract = plan.contract
 
+            step_count = len(plan.steps) if plan.steps else 0
+            agents_str = ", ".join(s.agent for s in plan.steps[:5]) if plan.steps else ""
+            if step_count > 5:
+                agents_str += f", +{step_count - 5} more"
+            await self._narrate_phase(
+                f"Dispatching {step_count} step{'s' if step_count != 1 else ''}"
+                + (f" to {agents_str}" if agents_str else "")
+                + "…"
+            )
+
             # Act
             results = await self.act(plan)
 
-            # Narrate results programmatically (no LLM call)
+            # Narrate results programmatically (no LLM call). The role
+            # is the actual agent (researcher/ingestor/miner/etc.) so
+            # the chat shows per-agent activity instead of a uniform
+            # scheduler stream — the user can see who did what and how
+            # long each one took. source_agent stays "scheduler" because
+            # the OODA loop is the publisher, but ChatPanel reads
+            # ``payload.role`` for the badge.
             from quantclaw.orchestration.narration import narrate_step
             if plan:
                 for step in plan.steps:
@@ -988,7 +942,7 @@ class OODALoop:
                         narrative = narrate_step(step.agent, step_result)
                         await self._bus.publish(Event(
                             type=EventType.CHAT_NARRATIVE,
-                            payload={"message": narrative, "role": "scheduler"},
+                            payload={"message": narrative, "role": step.agent},
                             source_agent="scheduler",
                         ))
                     elif step_result and step_result.status != AgentStatus.SUCCESS:
@@ -996,7 +950,7 @@ class OODALoop:
                         narrative = narrate_error(step.agent, step_result)
                         await self._bus.publish(Event(
                             type=EventType.CHAT_NARRATIVE,
-                            payload={"message": narrative, "role": "scheduler"},
+                            payload={"message": narrative, "role": step.agent},
                             source_agent="scheduler",
                         ))
 

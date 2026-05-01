@@ -1,7 +1,7 @@
 """Executor: trade execution with paper trading and real broker support.
 
-Paper trades by default (no broker needed). Switches to real broker
-when configured AND trust level is 3+ (TRUSTED).
+Paper trades by default. Live execution requires an explicit config flag and
+a broker plugin.
 """
 from __future__ import annotations
 
@@ -36,9 +36,8 @@ class ExecutorAgent(BaseAgent):
         if task_type == "run_deployments":
             return await self._run_paper_deployments(task)
 
-        # Check trust level for live trading
-        trust_level = self._config.get("level", 0)
-        use_real_broker = trust_level >= 3 and self._has_broker()
+        execution_config = self._config.get("execution", {})
+        use_real_broker = bool(execution_config.get("live_trading_enabled")) and self._has_broker()
 
         # Run compliance check — blocks live trades, warns for paper
         compliance_result = await self._check_compliance(orders)
@@ -136,7 +135,14 @@ class ExecutorAgent(BaseAgent):
                 except Exception:
                     logger.debug("Could not infer extra fields from %s", strategy_path)
 
-            data = self._load_market_data(symbols, start, end, extra_fields=extra_fields)
+            # ``_load_market_data`` calls into data plugins that use sync
+            # ``requests.get``; running it inline here would block the
+            # asyncio event loop for the duration of every fetch (same
+            # bug pattern as the WorldBank fix in ingestor.py).
+            import asyncio as _asyncio
+            data = await _asyncio.to_thread(
+                self._load_market_data, symbols, start, end, extra_fields=extra_fields,
+            )
             if not data:
                 deployment_updates.append({
                     "deployment_id": deployment.get("id", ""),

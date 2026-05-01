@@ -10,6 +10,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+BACKEND_PORT = 24120
+SIDECAR_PORT = 24122
+DASHBOARD_PORT = 24121
+
 
 class Status(StrEnum):
     OK = "ok"
@@ -226,21 +230,21 @@ def check_llm_provider() -> CheckResult:
 
 
 def check_backend() -> CheckResult:
-    if _is_port_open(8000):
-        return CheckResult(Status.OK, "Backend (port 8000)")
-    return CheckResult(Status.SKIP, "Backend (port 8000) — not running")
+    if _is_port_open(BACKEND_PORT):
+        return CheckResult(Status.OK, f"Backend (port {BACKEND_PORT})")
+    return CheckResult(Status.SKIP, f"Backend (port {BACKEND_PORT}) — not running")
 
 
 def check_sidecar() -> CheckResult:
-    if _is_port_open(8001):
-        return CheckResult(Status.OK, "Sidecar (port 8001)")
-    return CheckResult(Status.SKIP, "Sidecar (port 8001) — not running")
+    if _is_port_open(SIDECAR_PORT):
+        return CheckResult(Status.OK, f"Sidecar (port {SIDECAR_PORT})")
+    return CheckResult(Status.SKIP, f"Sidecar (port {SIDECAR_PORT}) — not running")
 
 
 def check_dashboard() -> CheckResult:
-    if _is_port_open(3000):
-        return CheckResult(Status.OK, "Dashboard (port 3000)")
-    return CheckResult(Status.SKIP, "Dashboard (port 3000) — not running")
+    if _is_port_open(DASHBOARD_PORT):
+        return CheckResult(Status.OK, f"Dashboard (port {DASHBOARD_PORT})")
+    return CheckResult(Status.SKIP, f"Dashboard (port {DASHBOARD_PORT}) — not running")
 
 
 def check_agents() -> CheckResult:
@@ -253,11 +257,11 @@ def check_agents() -> CheckResult:
 
 
 def check_ooda() -> CheckResult:
-    if not _is_port_open(8000):
+    if not _is_port_open(BACKEND_PORT):
         return CheckResult(Status.SKIP, "OODA loop — server not running")
     try:
         import urllib.request
-        resp = urllib.request.urlopen("http://127.0.0.1:8000/api/orchestration/status", timeout=3)
+        resp = urllib.request.urlopen(f"http://127.0.0.1:{BACKEND_PORT}/api/orchestration/status", timeout=3)
         data = json.loads(resp.read())
         phase = data.get("ooda_phase", "unknown")
         mode = data.get("autonomy_mode", "unknown")

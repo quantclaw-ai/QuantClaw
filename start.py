@@ -15,6 +15,7 @@ PID_FILE = ROOT / "data" / ".quantclaw.pids"
 BACKEND_PORT = 24120
 DASHBOARD_PORT = 24121
 SIDECAR_PORT = 24122
+LOCAL_HOST = "127.0.0.1"
 
 processes: list[subprocess.Popen] = []
 
@@ -75,10 +76,11 @@ def _load_pids() -> list[dict]:
 
 
 def _kill_pid(pid: int) -> bool:
-    """Kill a process by PID. Returns True if killed."""
+    """Kill a process and its entire child tree. Returns True if killed."""
     if sys.platform == "win32":
+        # /T kills the whole process tree (catches uvicorn workers, node children, etc.)
         result = subprocess.run(
-            ["taskkill", "/PID", str(pid), "/F"],
+            ["taskkill", "/PID", str(pid), "/F", "/T"],
             capture_output=True, text=True,
         )
         return result.returncode == 0
@@ -88,6 +90,26 @@ def _kill_pid(pid: int) -> bool:
             return True
         except (ProcessLookupError, PermissionError):
             return False
+
+
+def _pids_on_port(port: int) -> list[int]:
+    """Return PIDs of all processes with a LISTENING socket on the given port."""
+    pids: list[int] = []
+    if sys.platform == "win32":
+        result = subprocess.run(["netstat", "-ano"], capture_output=True, text=True)
+        for line in result.stdout.splitlines():
+            parts = line.split()
+            # netstat -ano columns: Proto  Local  Foreign  State  PID
+            if len(parts) >= 5 and parts[3] == "LISTENING":
+                local = parts[1]
+                if local.endswith(f":{port}") or local == f"[::]:{port}":
+                    try:
+                        pid = int(parts[4])
+                        if pid not in pids:
+                            pids.append(pid)
+                    except ValueError:
+                        pass
+    return pids
 
 
 def _is_port_in_use(port: int) -> bool:
@@ -170,7 +192,7 @@ def start():
     backend_log = open(log_dir / "backend.log", "w")
     backend = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "quantclaw.dashboard.api:app",
-         "--host", "0.0.0.0", "--port", str(BACKEND_PORT), "--log-level", "info"],
+         "--host", LOCAL_HOST, "--port", str(BACKEND_PORT), "--log-level", "info"],
         cwd=str(ROOT),
         stdout=backend_log,
         stderr=backend_log,
@@ -205,7 +227,7 @@ def start():
     node = _find_node()
     next_cli = str(DASHBOARD_DIR / "node_modules" / "next" / "dist" / "bin" / "next")
     dashboard = subprocess.Popen(
-        [node, next_cli, "dev", "-p", str(DASHBOARD_PORT)],
+        [node, next_cli, "dev", "-H", LOCAL_HOST, "-p", str(DASHBOARD_PORT)],
         cwd=str(DASHBOARD_DIR),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -272,51 +294,24 @@ def stop(quiet: bool = False):
     """Stop all QuantClaw services."""
     pids = _load_pids()
 
-    if not pids and not quiet:
-        # Fallback: try to kill by port
-        for name, port in [("backend", BACKEND_PORT), ("sidecar", SIDECAR_PORT), ("dashboard", DASHBOARD_PORT)]:
-            if _is_port_in_use(port):
-                if sys.platform == "win32":
-                    result = subprocess.run(
-                        f'for /f "tokens=5" %a in (\'netstat -ano ^| findstr :{port} ^| findstr LISTENING\') do @echo %a',
-                        capture_output=True, text=True, shell=True,
-                    )
-                    pid_str = result.stdout.strip()
-                    if pid_str:
-                        for pid in pid_str.split("\n"):
-                            pid = pid.strip()
-                            if pid.isdigit():
-                                _kill_pid(int(pid))
-                                if not quiet:
-                                    print(f"  Stopped {name} (pid {pid})")
-        if not quiet:
-            print("  All services stopped.")
-        return
-
-    killed = 0
+    # Kill by saved PID first (with /T to catch child processes on Windows)
     for entry in pids:
         name = entry.get("name", "?")
         pid = entry.get("pid", 0)
         if pid and _kill_pid(pid):
             if not quiet:
                 print(f"  Stopped {name} (pid {pid})")
-            killed += 1
         else:
             if not quiet:
                 print(f"  {name} (pid {pid}) already stopped")
 
-    # Also kill any process still on our ports (catches child processes)
+    # Always sweep by port — catches any process still holding the port
+    # (child workers, stale PIDs, OAuth callback servers on 1455, etc.)
     for name, port in [("backend", BACKEND_PORT), ("sidecar", SIDECAR_PORT), ("dashboard", DASHBOARD_PORT)]:
-        if _is_port_in_use(port):
-            if sys.platform == "win32":
-                result = subprocess.run(
-                    f'for /f "tokens=5" %a in (\'netstat -ano ^| findstr :{port} ^| findstr LISTENING\') do @echo %a',
-                    capture_output=True, text=True, shell=True,
-                )
-                for pid in result.stdout.strip().split("\n"):
-                    pid = pid.strip()
-                    if pid.isdigit():
-                        _kill_pid(int(pid))
+        for pid in _pids_on_port(port):
+            _kill_pid(pid)
+            if not quiet:
+                print(f"  Killed {name} leftover (pid {pid}, port {port})")
 
     # Clean up PID file
     try:

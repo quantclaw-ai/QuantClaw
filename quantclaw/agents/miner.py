@@ -52,6 +52,10 @@ class MinerAgent(BaseAgent):
         if not factors:
             factors = list(FALLBACK_FACTORS)
 
+        await self._narrate(
+            f"Generation 1/{generations}: evaluating {len(factors)} candidate factor{'s' if len(factors) != 1 else ''}…"
+        )
+
         if symbols:
             factors = await self._evaluate_factors(factors, symbols, task)
 
@@ -62,6 +66,10 @@ class MinerAgent(BaseAgent):
             # Rank by Sharpe, take top parents
             ranked = sorted(factors, key=lambda f: f.get("metrics", {}).get("sharpe", 0), reverse=True)
             parents = ranked[:3]
+            best_so_far = ranked[0].get("metrics", {}).get("sharpe", 0) if ranked else 0
+            await self._narrate(
+                f"Generation {gen + 1}/{generations}: best Sharpe so far {best_so_far:.2f}, evolving {len(parents)} parents…"
+            )
 
             # Evolve
             new_factors = await self._evolve_factors(
@@ -269,10 +277,14 @@ class MinerAgent(BaseAgent):
 
         try:
             from quantclaw.agents.market_data import load_market_data
+            import asyncio as _asyncio
 
             start = task.get("start") or None
             end = task.get("end") or datetime.now(timezone.utc).date().isoformat()
-            bundle = load_market_data(
+            # Sync data plugins — to_thread keeps the loop responsive
+            # while the miner step pulls per-symbol OHLCV.
+            bundle = await _asyncio.to_thread(
+                load_market_data,
                 self._config,
                 symbols,
                 start,

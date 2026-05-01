@@ -4,7 +4,7 @@
 class Strategy:
     name = "Risk Parity"
     description = "Weight each position inversely by its volatility so each contributes equal risk."
-    difficulty = "intermediate"
+    style = "portfolio"
     universe = ["SPY", "TLT", "GLD", "VNQ", "DBC"]
     frequency = "monthly"
 

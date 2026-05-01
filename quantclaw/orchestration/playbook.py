@@ -213,12 +213,23 @@ class Playbook:
         self._cache = entries
         return entries
 
+    async def _load_all_async(self) -> list[PlaybookEntry]:
+        """Async wrapper around ``_load_all``. Disk I/O + JSON parsing of
+        a 20MB file would otherwise block the event loop for tens to
+        hundreds of milliseconds — multiplied across query/search/recent
+        calls during a cycle, this becomes one of the contributors to
+        backend stalls. Cache makes subsequent calls free; only the
+        first pays the to_thread cost.
+        """
+        import asyncio as _asyncio
+        return await _asyncio.to_thread(self._load_all)
+
     async def query(
         self,
         tags: list[str] | None = None,
         entry_type: EntryType | None = None,
     ) -> list[PlaybookEntry]:
-        entries = self._load_all()
+        entries = await self._load_all_async()
         if entry_type is not None:
             entries = [e for e in entries if e.entry_type == entry_type]
         if tags:
@@ -228,12 +239,12 @@ class Playbook:
 
     async def search(self, text: str) -> list[PlaybookEntry]:
         lower = text.lower()
-        entries = self._load_all()
+        entries = await self._load_all_async()
         return [
             e for e in entries
             if lower in json.dumps(e.content).lower()
         ]
 
     async def recent(self, n: int = 20) -> list[PlaybookEntry]:
-        entries = self._load_all()
+        entries = await self._load_all_async()
         return entries[-n:]

@@ -487,8 +487,31 @@ async def call_with_tools(
     api_key = config.get("api_key", "")
     oauth_token = config.get("oauth_token", "")
 
-    logger.info("call_with_tools: agent=%s, provider=%s, model=%s, tools=%s",
-                agent_name, provider_name, model, [t["name"] for t in tool_defs])
+    # Fallback: when a cycle runs without going through /api/chat
+    # (autopilot wake-up, scheduler trigger), ``set_model_overrides`` is
+    # never called and ``config`` has no token. Read the OAuth token
+    # from disk so the tool-use loop still finds credentials. Without
+    # this, the OAuth path check fails and we fall to the direct-API
+    # path which raises ``OpenAIError: api_key client option must be set``.
+    if not api_key and not oauth_token:
+        try:
+            from quantclaw.dashboard.oauth import get_access_token
+            disk_token = get_access_token(provider_name)
+            if disk_token:
+                # OAuth tokens don't start with "sk-"; API keys do. Same
+                # heuristic OODA uses in set_model_overrides.
+                if disk_token.startswith("sk-"):
+                    api_key = disk_token
+                else:
+                    oauth_token = disk_token
+        except Exception:
+            logger.debug("Could not load fallback credentials for %s", provider_name)
+
+    logger.info(
+        "call_with_tools: agent=%s, provider=%s, model=%s, tools=%s, has_api_key=%s, has_oauth=%s",
+        agent_name, provider_name, model, [t["name"] for t in tool_defs],
+        bool(api_key), bool(oauth_token),
+    )
 
     # OAuth path — route through sidecar
     if oauth_token and provider_name in ("openai", "anthropic"):

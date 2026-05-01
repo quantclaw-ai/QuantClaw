@@ -34,19 +34,45 @@ class ResearcherAgent(BaseAgent):
         elif task_name == "find_new_allocation_opportunities":
             return await self._find_new_allocation_opportunities(task.get("context", {}))
 
-        # Legacy research task
-        topic = task.get("topic", task.get("query", ""))
+        # Legacy research task. The Planner LLM is supposed to set
+        # ``topic``/``query`` (per its prompt example), but in practice
+        # it sometimes emits only ``goal`` (campaign objective) or only
+        # ``task`` (the task name like "search_approaches"). Fall back
+        # through the most useful options instead of failing the step.
         task_type = task.get("task", "search")
+        topic = (
+            task.get("topic")
+            or task.get("query")
+            or task.get("goal")
+            or (task_type if isinstance(task_type, str) and task_type != "search" else "")
+        )
         context = task.get("context", "")
 
         if not topic:
             return AgentResult(status=AgentStatus.FAILED, error="No topic or query provided")
 
+        await self._narrate(f"Researching: {topic[:80]}…")
+
         try:
             findings = await self._research_with_tools(topic, task_type, context)
-        except Exception:
+        except Exception as exc:
             logger.exception("Tool-use research failed, falling back to pre-search")
+            # Surface the actual failure cause in chat — generic
+            # "tool-use loop failed" was uninformative when the real
+            # issue was missing credentials, network failure, etc.
+            cause = type(exc).__name__
+            detail = str(exc)[:160]
+            await self._narrate(f"Tool-use loop failed ({cause}: {detail}) — falling back to pre-search.")
             findings = await self._research_fallback(topic, task_type, context)
+
+        # Brief summary so the chat shows a tangible result before the
+        # scheduler's narrate_step reformats it.
+        finding_count = len(findings.get("findings", [])) if isinstance(findings, dict) else 0
+        factor_count = len(findings.get("suggested_factors", [])) if isinstance(findings, dict) else 0
+        await self._narrate(
+            f"Synthesized {finding_count} finding{'s' if finding_count != 1 else ''}, "
+            f"{factor_count} factor candidate{'s' if factor_count != 1 else ''}."
+        )
 
         return AgentResult(status=AgentStatus.SUCCESS, data=findings)
 

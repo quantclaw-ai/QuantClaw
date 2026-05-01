@@ -106,7 +106,11 @@ orchestration:
   cycle_timeout_minutes: 20
   ooda_interval: 30
   max_iterations_per_cycle: 3
-  chat_step_starts: false
+  # Emit a chat narrative when each step starts, attributed to the
+  # responsible agent (researcher/ingestor/miner/etc.) so the user can
+  # see what's happening during long cycles instead of staring at
+  # Scheduler silence for 10+ minutes between dispatch and first result.
+  chat_step_starts: true
   exploration:
     explore_temp: 0.7
     exploit_temp: 0.2

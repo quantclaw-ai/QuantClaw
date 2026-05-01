@@ -4,7 +4,7 @@
 class Strategy:
     name = "Buy and Hold"
     description = "Equal-weight buy and hold. Simple passive strategy."
-    difficulty = "beginner"
+    style = "classic"
     universe = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA"]
     frequency = "monthly"
 

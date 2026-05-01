@@ -99,10 +99,14 @@ class ValidatorAgent(BaseAgent):
             ran = await self._sandbox_replay(strategy_code, symbols, full_start or None, full_end)
             in_sample = ran or {}
 
+        await self._narrate(
+            f"Backtesting on held-out window {held_out_start_str} to {full_end}…"
+        )
         held_out_result = await self._sandbox_replay(
             strategy_code, symbols, held_out_start_str, full_end,
         )
         if held_out_result is None:
+            await self._narrate("Held-out backtest failed to execute.")
             return AgentResult(
                 status=AgentStatus.FAILED,
                 error="Held-out backtest failed to execute",
@@ -181,7 +185,12 @@ class ValidatorAgent(BaseAgent):
 
             required_columns = extract_required_columns_from_code(strategy_code)
             extra_fields = extra_fields_from_columns(required_columns)
-            bundle = load_market_data(
+            # Sync data plugins (yfinance/FRED/etc.) — wrap in to_thread so
+            # the validator step doesn't block the event loop while it
+            # waits on dozens of remote HTTP calls.
+            import asyncio as _asyncio
+            bundle = await _asyncio.to_thread(
+                load_market_data,
                 self._config,
                 symbols,
                 start,

@@ -147,21 +147,13 @@ export default function LogsPage() {
           return (
             <div key={i} style={{
               padding: "8px 12px",
-              borderLeftWidth: 3,
-              borderLeftColor: typeColor(e.type),
-              borderLeftStyle: "solid",
-              borderRightWidth: 1,
-              borderRightColor: "var(--color-trace)",
-              borderRightStyle: "solid",
-              borderTopWidth: 1,
-              borderTopColor: "var(--color-trace)",
-              borderTopStyle: "solid",
-              borderBottomWidth: 1,
-              borderBottomColor: "var(--color-trace)",
-              borderBottomStyle: "solid",
+              borderLeft: `3px solid ${typeColor(e.type)}`,
               background: "var(--color-hull)",
               borderRadius: 6,
               fontSize: 13,
+              border: "1px solid var(--color-trace)",
+              borderLeftWidth: 3,
+              borderLeftColor: typeColor(e.type),
             }}>
               <div style={{ display: "flex", gap: 12, color: "var(--color-muted)" }}>
                 <span>{time}</span>

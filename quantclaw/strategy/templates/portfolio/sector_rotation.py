@@ -4,7 +4,7 @@
 class Strategy:
     name = "Sector Rotation"
     description = "Buy the top 3 sector ETFs ranked by 60-day momentum."
-    difficulty = "intermediate"
+    style = "portfolio"
     universe = ["XLK", "XLV", "XLF", "XLY", "XLI", "XLE", "XLU", "XLP", "XLB", "XLRE", "XLC"]
     frequency = "monthly"
     top_n = 3

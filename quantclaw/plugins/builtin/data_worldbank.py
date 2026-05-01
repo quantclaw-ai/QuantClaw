@@ -11,7 +11,14 @@ logger = logging.getLogger(__name__)
 
 WB_API = "https://api.worldbank.org/v2/country"
 
-_COUNTRIES = ["US", "CN", "GB", "JP", "DE", "IN", "BR", "KR", "AU", "CA", "MX", "ZA"]
+# Default to US only — every country added multiplies the auto-ingest
+# work by the indicator count (17). The previous 12-country list meant
+# 204 sequential synchronous HTTP calls per ingestion (~17 minutes when
+# the API was slow), which blocked the asyncio event loop and made the
+# whole backend look hung. If a user genuinely needs more countries
+# they can extend this list, but for "go make money"-style generic
+# campaigns one country's macro context is plenty.
+_COUNTRIES = ["US"]
 
 _INDICATORS = {
     # GDP & growth

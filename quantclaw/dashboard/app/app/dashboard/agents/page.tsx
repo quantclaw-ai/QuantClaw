@@ -1,7 +1,6 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useLang } from "../../lang-context";
-import { useAllAvailableModels } from "../../useProviderModels";
 
 const API = "http://localhost:24120";
 
@@ -45,8 +44,46 @@ const MODEL_RANKING = [
   "qwen3:30b", "qwen3:8b", "qwen3:4b",
 ];
 
-// Available models are now fetched live from each configured provider's
-// /v1/models endpoint via the useAllAvailableModels hook (see useProviderModels.ts).
+function getAvailableModels(): { provider: string; model: string }[] {
+  const models: { provider: string; model: string }[] = [];
+
+  const ollamaModels = JSON.parse(localStorage.getItem("quantclaw_ollama_models") || "[]");
+  for (const m of ollamaModels) {
+    models.push({ provider: "ollama", model: m });
+  }
+
+  const providers = ["openai", "anthropic"];
+  const providerModels: Record<string, string[]> = {
+    openai: ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"],
+    anthropic: ["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"],
+  };
+  for (const p of providers) {
+    const hasOAuth = localStorage.getItem(`quantclaw_oauth_${p}`) === "true";
+    const hasKey = !!localStorage.getItem(`quantclaw_key_${p}`);
+    if (hasOAuth || hasKey) {
+      for (const m of providerModels[p] || []) {
+        models.push({ provider: p, model: m });
+      }
+    }
+  }
+
+  const apiKeyProviders: Record<string, string[]> = {
+    google: ["gemini-3.1-pro-preview", "gemini-2.5-flash", "gemini-2.5-flash-lite"],
+    deepseek: ["deepseek-chat", "deepseek-reasoner"],
+    xai: ["grok-4.20-0309-reasoning", "grok-4-1-fast-non-reasoning"],
+    mistral: ["mistral-large-latest", "mistral-small-latest"],
+    groq: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+  };
+  for (const [p, pModels] of Object.entries(apiKeyProviders)) {
+    if (localStorage.getItem(`quantclaw_key_${p}`)) {
+      for (const m of pModels) {
+        models.push({ provider: p, model: m });
+      }
+    }
+  }
+
+  return models;
+}
 
 function autoAssignModels(agents: Agent[], available: { provider: string; model: string }[]): Record<string, string> {
   const assignments: Record<string, string> = {};
@@ -132,20 +169,10 @@ export default function AgentsPage() {
   const { lang } = useLang();
   const t = translations[lang] || translations.en;
   const [agents, setAgents] = useState<Agent[]>([]);
-  // Initialize empty on both server and client; load saved assignments after
-  // mount to avoid hydration mismatch.
   const [assignments, setAssignments] = useState<Record<string, string>>({});
+  const [available, setAvailable] = useState<{ provider: string; model: string }[]>([]);
   const [saved, setSaved] = useState(false);
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
-
-  useEffect(() => {
-    const savedAssignments = localStorage.getItem("quantclaw_agent_models");
-    if (savedAssignments) {
-      try {
-        setAssignments(JSON.parse(savedAssignments));
-      } catch {}
-    }
-  }, []);
 
   useEffect(() => {
     fetch(`${API}/api/agents`)
@@ -153,6 +180,10 @@ export default function AgentsPage() {
       .then((data) => {
         const agentList = data.agents || [];
         setAgents(agentList);
+        const savedAssignments = localStorage.getItem("quantclaw_agent_models");
+        if (savedAssignments) {
+          setAssignments(JSON.parse(savedAssignments));
+        }
       });
 
     fetch("http://localhost:11434/api/tags", { signal: AbortSignal.timeout(3000) })
@@ -176,14 +207,19 @@ export default function AgentsPage() {
     }
   }, []);
 
-  const { available } = useAllAvailableModels();
-  const effectiveAssignments = useMemo(
-    () => Object.keys(assignments).length > 0 ? assignments : autoAssignModels(agents, available),
-    [assignments, agents, available],
-  );
+  useEffect(() => {
+    const models = getAvailableModels();
+    setAvailable(models);
+    const savedAssignments = localStorage.getItem("quantclaw_agent_models");
+    if (!savedAssignments && agents.length > 0 && models.length > 0) {
+      const auto = autoAssignModels(agents, models);
+      setAssignments(auto);
+      localStorage.setItem("quantclaw_agent_models", JSON.stringify(auto));
+    }
+  }, [agents, ollamaModels]);
 
   const handleModelChange = (agentName: string, model: string) => {
-    const updated = { ...effectiveAssignments, [agentName]: model };
+    const updated = { ...assignments, [agentName]: model };
     setAssignments(updated);
     localStorage.setItem("quantclaw_agent_models", JSON.stringify(updated));
     setSaved(true);
@@ -191,7 +227,8 @@ export default function AgentsPage() {
   };
 
   const handleAutoAssign = () => {
-    const auto = autoAssignModels(agents, available);
+    const models = getAvailableModels();
+    const auto = autoAssignModels(agents, models);
     setAssignments(auto);
     localStorage.setItem("quantclaw_agent_models", JSON.stringify(auto));
     setSaved(true);
@@ -229,7 +266,7 @@ export default function AgentsPage() {
       <div className="space-y-2">
         {agents.map((agent) => {
           const tier = AGENT_TIERS[agent.name] || "medium";
-          const currentModel = effectiveAssignments[agent.name] || agent.model || "";
+          const currentModel = assignments[agent.name] || agent.model || "";
 
           return (
             <div
@@ -258,7 +295,7 @@ export default function AgentsPage() {
                   <select
                     value={currentModel}
                     onChange={(e) => handleModelChange(agent.name, e.target.value)}
-                    className="w-full bg-keel/50 border border-trace rounded-lg px-3 py-2 text-xs font-mono text-[#d8e0f0] outline-none focus:border-gold/30 transition-colors cursor-pointer appearance-none"
+                    className="w-full bg-keel/50 border border-trace rounded-lg px-3 py-2 text-xs font-mono text-[#8a9ab0] outline-none focus:border-gold/30 transition-colors cursor-pointer appearance-none"
                     style={{
                       backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5L6 7.5L9 4.5' stroke='%234a5a7a' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E")`,
                       backgroundRepeat: "no-repeat",
@@ -267,14 +304,10 @@ export default function AgentsPage() {
                     }}
                   >
                     {currentModel && !allModels.includes(currentModel) && (
-                      <option value={currentModel} style={{ backgroundColor: "#0a121f", color: "#e8eef8" }}>
-                        {currentModel} (default)
-                      </option>
+                      <option value={currentModel}>{currentModel} (default)</option>
                     )}
                     {allModels.map((m) => (
-                      <option key={m} value={m} style={{ backgroundColor: "#0a121f", color: "#e8eef8" }}>
-                        {m}
-                      </option>
+                      <option key={m} value={m}>{m}</option>
                     ))}
                   </select>
                 </div>

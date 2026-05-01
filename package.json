@@ -14,7 +14,15 @@
     "!quantclaw/**/__pycache__",
     "!quantclaw/**/node_modules",
     "!quantclaw/**/.next",
-    "!quantclaw/**/package-lock.json"
+    "!quantclaw/**/package-lock.json",
+    "!quantclaw/**/oauth_credentials.json",
+    "!quantclaw/**/*_credentials.json",
+    "!quantclaw/**/*.pem",
+    "!quantclaw/**/*.p12",
+    "!quantclaw/**/*.pfx",
+    "!quantclaw/**/*.key",
+    "!quantclaw/**/*.sqlite",
+    "!quantclaw/**/*.db"
   ],
   "scripts": {
     "postinstall": "node bin/postinstall.mjs"

@@ -4,7 +4,7 @@
 class Strategy:
     name = "Wheel Strategy"
     description = "Sell cash-secured puts on stocks you want to own. If assigned, sell covered calls."
-    difficulty = "advanced"
+    style = "options"
     universe = ["AAPL", "MSFT", "GOOGL"]
     frequency = "weekly"
 
